@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Catatan Siswa - Desain Baru</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Libraries for PDF and Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+        }
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            padding: 1rem;
+        }
+        .modal-content {
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7); /* slate-800 with opacity */
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(51, 65, 85, 0.5); /* slate-700 with opacity */
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; } /* slate-800 */
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; } /* slate-700 */
+        ::-webkit-scrollbar-thumb:hover { background: #475569; } /* slate-600 */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+    </style>
+</head>
+<body class="text-slate-300">
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-md">
+            <div class="glass-card p-8 rounded-lg text-center">
+                <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-orange-500 mb-2">
+                    Selamat Datang
+                </h1>
+                <p class="text-slate-400 mb-6">Aplikasi Pencatatan Pelanggaran dan Penghargaan Siswa.</p>
+
+                <div class="text-left text-sm text-slate-400 my-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <p><strong><i class="inline-block w-4 h-4" data-lucide="shield-x"></i> Pelanggaran:</strong> Setiap tindakan yang menghasilkan poin negatif, mengurangi total poin siswa.</p>
+                    <p class="mt-2"><strong><i class="inline-block w-4 h-4" data-lucide="award"></i> Penghargaan:</strong> Setiap prestasi yang menghasilkan poin positif, menambah total poin siswa.</p>
+                </div>
+
+                <form id="loginForm" class="space-y-4">
+                    <div>
+                        <label for="tokenInput" class="sr-only">Token</label>
+                        <input type="password" id="tokenInput" placeholder="Masukkan Token Akses" class="w-full text-center px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-white" required>
+                    </div>
+                    <p id="loginError" class="text-red-400 text-sm hidden">Token yang Anda masukkan salah.</p>
+                    <button type="submit" class="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200">
+                        Masuk Aplikasi
+                    </button>
+                    <p class="text-xs text-slate-500 pt-2">Token default: 123456</p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 hidden">
+        
+        <header class="mb-8 text-center">
+            <h1 id="schoolNameHeader" class="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-orange-500">
+                <!-- Nama sekolah dimuat di sini -->
+            </h1>
+            <p class="text-slate-400 mt-2">Sistem Pencatatan Pelanggaran & Penghargaan Siswa</p>
+            <p id="current-date" class="text-orange-400 text-sm mt-2"></p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-1 space-y-6">
+                <div class="glass-card p-6 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4 text-white">Daftar Siswa</h2>
+                    <div class="space-y-3 mb-4">
+                        <div class="flex gap-2">
+                             <button onclick="app.openAddStudentModal()" class="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-sm"><i data-lucide="user-plus" class="w-4 h-4"></i> Tambah Siswa</button>
+                             <button onclick="app.openImportModal()" class="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-sm"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Import Excel</button>
+                        </div>
+                        <input type="text" id="searchStudent" placeholder="Cari nama siswa..." class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-white">
+                    </div>
+                    <div id="student-list" class="space-y-1 max-h-[calc(100vh-20rem)] overflow-y-auto pr-2"></div>
+                </div>
+
+                <div class="glass-card p-6 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4 text-white">Navigasi & Admin</h2>
+                    <div class="space-y-4">
+                        <button onclick="app.showMainDashboard()" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="layout-dashboard" class="w-5 h-5"></i>Dasbor Utama</button>
+                        <button onclick="app.showSummaryDashboard()" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="pie-chart" class="w-5 h-5"></i>Dasbor Rekapan</button>
+                        <button onclick="app.showMasterData('Kelas')" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="door-open" class="w-5 h-5"></i>Kelola Data Kelas</button>
+                        <button onclick="app.showMasterData('Pelanggaran')" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="shield-x" class="w-5 h-5"></i>Kelola Data Pelanggaran</button>
+                        <button onclick="app.showMasterData('Penghargaan')" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="award" class="w-5 h-5"></i>Kelola Data Penghargaan</button>
+                        <button onclick="app.openSettingsModal()" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="settings" class="w-5 h-5"></i>Pengaturan Aplikasi</button>
+                        <button onclick="app.logout()" class="w-full text-left bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="log-out" class="w-5 h-5"></i>Kembali ke Login</button>
+                    </div>
+                </div>
+
+                 <div class="glass-card p-6 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4 text-white">Manajemen Data</h2>
+                    <div class="space-y-4">
+                        <button onclick="app.backupData()" class="w-full text-left bg-green-800 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="download" class="w-5 h-5"></i>Cadangkan Data</button>
+                        <button onclick="app.triggerRestore()" class="w-full text-left bg-blue-800 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="upload" class="w-5 h-5"></i>Restore Data</button>
+                        <input type="file" id="restoreFile" class="hidden" accept=".json">
+                        <button onclick="app.confirmDeleteAllData()" class="w-full text-left bg-red-800 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3"><i data-lucide="trash-2" class="w-5 h-5"></i>Hapus Semua Data</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Main Dashboard View -->
+            <div id="main-dashboard-view" class="lg:col-span-2 space-y-8 hidden"></div>
+            
+            <!-- Summary Dashboard View -->
+            <div id="summary-dashboard-view" class="lg:col-span-2 space-y-8 hidden"></div>
+
+            <!-- Student Detail View -->
+            <div id="student-detail-view" class="lg:col-span-2 glass-card p-6 rounded-lg hidden"></div>
+            
+            <!-- Placeholder View (for when no students exist) -->
+            <div id="placeholder-view" class="lg:col-span-2 glass-card p-8 rounded-lg items-center justify-center text-center hidden">
+                <i data-lucide="users" class="w-20 h-20 text-slate-600 mb-4"></i>
+                <h2 class="text-2xl font-semibold text-slate-300">Data Siswa Kosong</h2>
+                <p class="text-slate-500 mt-1">Silakan tambah data siswa secara manual atau import dari file Excel.</p>
+            </div>
+        </div>
+
+        <div id="modal-container"></div>
+        
+        <footer class="text-center text-sm text-slate-500 py-4 mt-8 border-t border-slate-700">
+            Aplikasi Catatan Siswa © 2025 - Dibuat oleh Muhammad Hasratul
+        </footer>
+    </div>
+
+    <script>
+        // --- DATABASE AWAL (Hanya digunakan jika localStorage kosong) ---
+        const database = {
+            students: [
+                { id: 1, name: 'Budi Santoso', classId: 1, nisn: '0012345678', address: 'Jl. Merdeka No. 1, Jakarta', phone: '081234567890' },
+                { id: 2, name: 'Citra Lestari', classId: 1, nisn: '0012345679', address: 'Jl. Pahlawan No. 10, Bandung', phone: '081234567891' },
+                { id: 3, name: 'Agus Wijaya', classId: 2, nisn: '0022345671', address: 'Jl. Sudirman No. 5, Surabaya', phone: '081234567892' },
+            ],
+            classes: [ { id: 1, name: 'Kelas 10A' }, { id: 2, name: 'Kelas 10B' }, { id: 3, name: 'Kelas 11A' } ],
+            violations: [ { id: 1, name: 'Terlambat masuk sekolah', points: 5 }, { id: 2, name: 'Tidak mengerjakan PR', points: 10 }, ],
+            achievements: [ { id: 1, name: 'Juara 1 Lomba Cerdas Cermat', points: 50 }, { id: 2, name: 'Mewakili sekolah dalam OSN', points: 30 }, ],
+            records: [ { id: 1, studentId: 1, type: 'violation', itemId: 1, notes: 'Terlambat 15 menit', date: '2025-10-01' }, { id: 3, studentId: 2, type: 'achievement', itemId: 1, notes: 'Tingkat kabupaten', date: '2025-09-15' },]
+        };
+        
+        const app = {
+            data: { 
+                students: [], classes: [], violations: [], achievements: [], records: [], 
+                currentStudentId: null, currentMasterDataType: null, 
+                activeView: 'main-dashboard',
+                excelPreviewData: [],
+                settings: {
+                    schoolName: "Nama Sekolah Anda", teacherName: "Nama Guru/Wali Kelas",
+                    teacherNip: "NIP. 1234567890", token: "123456"
+                }
+            },
+            init() {
+                this.loadSettings();
+                this.renderModals();
+                lucide.createIcons();
+                document.getElementById('loginForm').addEventListener('submit', (e) => { e.preventDefault(); this.handleLogin(); });
+            },
+            runApplication() {
+                const loadedData = this.loadAllData();
+                this.data = { ...this.data, ...loadedData };
+                this.updateDateTime();
+                document.getElementById('schoolNameHeader').textContent = this.data.settings.schoolName;
+                this.renderStudentList(); 
+                this.showMainDashboard();
+                this.attachEventListeners(); 
+                lucide.createIcons();
+            },
+            updateDateTime() {
+                const dateEl = document.getElementById('current-date');
+                if (!dateEl) return;
+                const now = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                dateEl.textContent = now.toLocaleDateString('id-ID', options);
+            },
+            handleLogin() {
+                const tokenInput = document.getElementById('tokenInput').value;
+                const loginError = document.getElementById('loginError');
+                if (tokenInput === this.data.settings.token) {
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('app').classList.remove('hidden');
+                    this.runApplication();
+                } else {
+                    loginError.classList.remove('hidden');
+                    setTimeout(() => loginError.classList.add('hidden'), 3000);
+                }
+            },
+            attachEventListeners() {
+                document.getElementById('searchStudent').addEventListener('input', (e) => this.renderStudentList(e.target.value));
+                document.getElementById('addStudentForm').addEventListener('submit', (e) => { e.preventDefault(); this.addStudent(); });
+                document.getElementById('editStudentForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveStudent(); });
+                document.getElementById('importExcelForm').addEventListener('submit', (e) => { e.preventDefault(); document.getElementById('excelFileInput').click(); });
+                document.getElementById('excelFileInput').addEventListener('change', (e) => this.handleExcelUpload(e));
+                document.getElementById('addRecordForm').addEventListener('submit', (e) => { e.preventDefault(); this.addRecord(); });
+                document.getElementById('recordType').addEventListener('change', () => this.updateRecordItemOptions('add'));
+                document.getElementById('editRecordForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveRecord(); });
+                document.getElementById('editRecordType').addEventListener('change', () => this.updateRecordItemOptions('edit'));
+                document.getElementById('masterDataForm').addEventListener('submit', (e) => { e.preventDefault(); this.addMasterDataItem(); });
+                document.getElementById('editMasterForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveMasterDataItem(); });
+                document.getElementById('settingsForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveSettings(); });
+                document.getElementById('restoreFile').addEventListener('change', (e) => this.handleRestore(e));
+            },
+
+            // --- DATA PERSISTENCE (localStorage) ---
+            loadSettings() {
+                const savedSettings = localStorage.getItem('studentApp-settings');
+                if (savedSettings) this.data.settings = JSON.parse(savedSettings);
+                else localStorage.setItem('studentApp-settings', JSON.stringify(this.data.settings));
+            },
+            loadAllData() {
+                const allData = {};
+                const keys = ['students', 'classes', 'violations', 'achievements', 'records'];
+                keys.forEach(key => {
+                    const savedData = localStorage.getItem(`studentApp-${key}`);
+                    allData[key] = savedData ? JSON.parse(savedData) : JSON.parse(JSON.stringify(database[key]));
+                });
+                return allData;
+            },
+            saveAllData() {
+                const keys = ['students', 'classes', 'violations', 'achievements', 'records'];
+                keys.forEach(key => {
+                    localStorage.setItem(`studentApp-${key}`, JSON.stringify(this.data[key]));
+                });
+            },
+            saveSettings() {
+                this.data.settings.schoolName = document.getElementById('settingSchoolName').value;
+                this.data.settings.teacherName = document.getElementById('settingTeacherName').value;
+                this.data.settings.teacherNip = document.getElementById('settingTeacherNip').value;
+                const newToken = document.getElementById('settingToken').value;
+                if(newToken) this.data.settings.token = newToken;
+                localStorage.setItem('studentApp-settings', JSON.stringify(this.data.settings));
+                document.getElementById('schoolNameHeader').textContent = this.data.settings.schoolName;
+                this.closeSettingsModal();
+            },
+            logout() {
+                this.showConfirmationModal(
+                    'Apakah Anda yakin ingin keluar dan kembali ke halaman login?',
+                    () => { window.location.reload(); }
+                );
+            },
+            
+            // --- BACKUP, RESTORE, DELETE ---
+            backupData() {
+                const dataToBackup = { ...this.loadAllData(), settings: this.data.settings };
+                const blob = new Blob([JSON.stringify(dataToBackup, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                const date = new Date().toISOString().split('T')[0];
+                a.download = `cadangan_data_siswa_${date}.json`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            },
+            triggerRestore() {
+                this.showConfirmationModal('Ini akan menimpa semua data yang ada dengan data dari file cadangan. Apakah Anda yakin?', () => {
+                    document.getElementById('restoreFile').click();
+                });
+            },
+            handleRestore(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const restoredData = JSON.parse(e.target.result);
+                        const keys = ['students', 'classes', 'violations', 'achievements', 'records', 'settings'];
+                        if (keys.every(key => restoredData.hasOwnProperty(key))) {
+                            keys.forEach(key => {
+                                const storageKey = key === 'settings' ? 'studentApp-settings' : `studentApp-${key}`;
+                                localStorage.setItem(storageKey, JSON.stringify(restoredData[key]));
+                            });
+                            alert('Data berhasil dipulihkan. Aplikasi akan dimuat ulang.');
+                            window.location.reload();
+                        } else {
+                            alert('File cadangan tidak valid.');
+                        }
+                    } catch (error) {
+                        alert('Gagal membaca file. Pastikan file cadangan tidak rusak.');
+                    }
+                };
+                reader.readAsText(file);
+                event.target.value = '';
+            },
+            confirmDeleteAllData() {
+                 this.showConfirmationModal('PERINGATAN: Tindakan ini akan menghapus SEMUA data (siswa, kelas, catatan, pengaturan) secara permanen dan tidak dapat dibatalkan. Yakin ingin melanjutkan?', () => {
+                    this.deleteAllData();
+                }, 'bg-red-600 hover:bg-red-500');
+            },
+            deleteAllData() {
+                const keys = ['students', 'classes', 'violations', 'achievements', 'records', 'settings'];
+                 keys.forEach(key => {
+                    const storageKey = key === 'settings' ? 'studentApp-settings' : `studentApp-${key}`;
+                    localStorage.removeItem(storageKey);
+                });
+                alert('Semua data telah dihapus. Aplikasi akan dimuat ulang.');
+                window.location.reload();
+            },
+
+            // --- STUDENT MANAGEMENT ---
+            openAddStudentModal() {
+                const classSelect = document.getElementById('addStudentClass');
+                classSelect.innerHTML = this.data.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                document.getElementById('addStudentModal').classList.remove('hidden');
+            },
+            closeAddStudentModal() {
+                document.getElementById('addStudentForm').reset();
+                document.getElementById('addStudentModal').classList.add('hidden');
+            },
+            addStudent() {
+                const newStudent = { id: Date.now(), name: document.getElementById('addStudentName').value, classId: parseInt(document.getElementById('addStudentClass').value), nisn: document.getElementById('addStudentNisn').value, address: document.getElementById('addStudentAddress').value, phone: document.getElementById('addStudentPhone').value, };
+                this.data.students.push(newStudent);
+                this.saveAllData(); this.renderStudentList(); this.closeAddStudentModal();
+                this.refreshActiveDashboard();
+            },
+            openEditStudentModal(studentId) {
+                const student = this.data.students.find(s => s.id === studentId);
+                if (!student) return;
+                document.getElementById('editStudentId').value = student.id;
+                document.getElementById('editStudentName').value = student.name;
+                document.getElementById('editStudentNisn').value = student.nisn;
+                document.getElementById('editStudentAddress').value = student.address;
+                document.getElementById('editStudentPhone').value = student.phone;
+                const classSelect = document.getElementById('editStudentClass');
+                classSelect.innerHTML = this.data.classes.map(c => `<option value="${c.id}" ${c.id === student.classId ? 'selected' : ''}>${c.name}</option>`).join('');
+                document.getElementById('editStudentModal').classList.remove('hidden');
+            },
+            closeEditStudentModal() {
+                document.getElementById('editStudentForm').reset();
+                document.getElementById('editStudentModal').classList.add('hidden');
+            },
+            saveStudent() {
+                const studentId = parseInt(document.getElementById('editStudentId').value);
+                const student = this.data.students.find(s => s.id === studentId);
+                if (!student) return;
+                student.name = document.getElementById('editStudentName').value; student.classId = parseInt(document.getElementById('editStudentClass').value); student.nisn = document.getElementById('editStudentNisn').value; student.address = document.getElementById('editStudentAddress').value; student.phone = document.getElementById('editStudentPhone').value;
+                this.saveAllData(); this.renderStudentList();
+                if (this.data.currentStudentId === studentId) this.showStudentDetail(studentId);
+                else this.refreshActiveDashboard();
+                this.closeEditStudentModal();
+            },
+            confirmDeleteStudent(studentId) {
+                const student = this.data.students.find(s => s.id === studentId);
+                if (!student) return;
+                this.showConfirmationModal(
+                    `Apakah Anda yakin ingin menghapus siswa "${student.name}"? Semua catatan pelanggaran dan penghargaan siswa ini juga akan dihapus secara permanen.`,
+                    () => this.deleteStudent(studentId),
+                    'bg-red-600 hover:bg-red-500'
+                );
+            },
+            deleteStudent(studentId) {
+                this.data.students = this.data.students.filter(s => s.id !== studentId);
+                this.data.records = this.data.records.filter(r => r.studentId !== studentId);
+                this.saveAllData();
+                this.renderStudentList();
+                if (this.data.currentStudentId === studentId) {
+                    this.data.currentStudentId = null;
+                    this.showMainDashboard();
+                } else {
+                    this.refreshActiveDashboard();
+                }
+            },
+            openImportModal() {
+                document.getElementById('excelPreview').innerHTML = '';
+                document.getElementById('confirmImportBtn').classList.add('hidden');
+                document.getElementById('importModal').classList.remove('hidden');
+            },
+            closeImportModal() {
+                document.getElementById('excelFileInput').value = '';
+                document.getElementById('importModal').classList.add('hidden');
+            },
+            handleExcelUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    this.renderExcelPreview(jsonData);
+                };
+                reader.readAsArrayBuffer(file);
+            },
+            renderExcelPreview(jsonData) {
+                const previewEl = document.getElementById('excelPreview');
+                if (jsonData.length < 2) {
+                    previewEl.innerHTML = `<p class="text-red-400">File Excel kosong atau format tidak sesuai.</p>`;
+                    return;
+                }
+                const headers = jsonData[0].map(h => h.toString().toLowerCase().trim());
+                const expectedHeaders = ['nama', 'kelas', 'nisn', 'alamat', 'nomor handphone'];
+                if (JSON.stringify(headers) !== JSON.stringify(expectedHeaders)) {
+                    previewEl.innerHTML = `<p class="text-red-400">Header kolom tidak sesuai. Harusnya: nama, kelas, nisn, alamat, nomor handphone</p>`;
+                    return;
+                }
+                
+                let tableHTML = `<table class="w-full text-sm text-left">
+                                    <thead class="bg-slate-700"><tr>${headers.map(h => `<th class="p-2">${h}</th>`).join('')}<th class="p-2">Status</th></tr></thead>
+                                    <tbody>`;
+                
+                this.data.excelPreviewData = [];
+                const rows = jsonData.slice(1);
+                rows.forEach(row => {
+                    const studentData = {
+                        name: row[0],
+                        className: row[1]?.toString().trim(),
+                        nisn: row[2],
+                        address: row[3],
+                        phone: row[4],
+                        isValid: false,
+                        classId: null
+                    };
+
+                    const foundClass = this.data.classes.find(c => c.name.toLowerCase() === studentData.className?.toLowerCase());
+                    if (foundClass) {
+                        studentData.isValid = true;
+                        studentData.classId = foundClass.id;
+                    }
+
+                    this.data.excelPreviewData.push(studentData);
+
+                    tableHTML += `<tr class="${studentData.isValid ? 'bg-slate-800' : 'bg-red-900/50'}">
+                                    ${row.map(cell => `<td class="p-2 border-t border-slate-700">${cell || ''}</td>`).join('')}
+                                    <td class="p-2 border-t border-slate-700">${studentData.isValid ? '<span class="text-green-400">OK</span>' : '<span class="text-red-400">Kelas tidak ditemukan</span>'}</td>
+                                  </tr>`;
+                });
+                tableHTML += `</tbody></table>`;
+                previewEl.innerHTML = tableHTML;
+                
+                if (this.data.excelPreviewData.some(d => d.isValid)) {
+                    document.getElementById('confirmImportBtn').classList.remove('hidden');
+                }
+            },
+            confirmImport() {
+                const validStudents = this.data.excelPreviewData.filter(d => d.isValid);
+                if (validStudents.length === 0) { alert('Tidak ada data siswa yang valid untuk diimpor.'); return; }
+                validStudents.forEach(s => { this.data.students.push({ id: Date.now() + Math.random(), name: s.name, classId: s.classId, nisn: s.nisn, address: s.address, phone: s.phone, }); });
+                this.saveAllData(); this.renderStudentList(); this.closeImportModal();
+                this.refreshActiveDashboard();
+                alert(`${validStudents.length} siswa berhasil diimpor.`);
+            },
+            toggleCollapse(elementId) {
+                const content = document.getElementById(elementId);
+                if (!content) return;
+                const icon = content.previousElementSibling.querySelector('i[data-lucide="chevron-down"]');
+                content.classList.toggle('hidden');
+                if (icon) {
+                    icon.style.transform = content.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
+                }
+            },
+            // --- UI RENDERING & LOGIC ---
+            refreshActiveDashboard() {
+                if (this.data.activeView === 'main-dashboard') this.renderMainDashboard();
+                else if (this.data.activeView === 'summary-dashboard') this.renderSummaryDashboard();
+            },
+            showMainDashboard() {
+                this.data.activeView = 'main-dashboard';
+                this.data.currentStudentId = null;
+                document.getElementById('student-detail-view').classList.add('hidden');
+                document.getElementById('summary-dashboard-view').classList.add('hidden');
+                this.renderMainDashboard();
+                this.renderStudentList();
+            },
+            showSummaryDashboard() {
+                this.data.activeView = 'summary-dashboard';
+                this.data.currentStudentId = null;
+                document.getElementById('student-detail-view').classList.add('hidden');
+                document.getElementById('main-dashboard-view').classList.add('hidden');
+                this.renderSummaryDashboard();
+                this.renderStudentList();
+            },
+            renderMainDashboard() {
+                const dashboardEl = document.getElementById('main-dashboard-view');
+                const placeholderEl = document.getElementById('placeholder-view');
+                if (this.data.students.length === 0) {
+                    placeholderEl.classList.remove('hidden'); placeholderEl.classList.add('flex');
+                    dashboardEl.classList.add('hidden'); return;
+                }
+                placeholderEl.classList.add('hidden'); placeholderEl.classList.remove('flex');
+                dashboardEl.classList.remove('hidden');
+
+                const studentPoints = this.data.students.map(student => {
+                    let violationPoints = 0, achievementPoints = 0;
+                    this.data.records.filter(r => r.studentId === student.id).forEach(record => {
+                        if (record.type === 'violation') {
+                            const item = this.data.violations.find(v => v.id === record.itemId);
+                            if (item) violationPoints += item.points;
+                        } else {
+                            const item = this.data.achievements.find(a => a.id === record.itemId);
+                            if (item) achievementPoints += item.points;
+                        }
+                    });
+                    return { ...student, violationPoints, achievementPoints };
+                });
+                const topViolations = studentPoints.filter(s => s.violationPoints > 0).sort((a, b) => b.violationPoints - a.violationPoints).slice(0, 5);
+                const topAchievements = studentPoints.filter(s => s.achievementPoints > 0).sort((a, b) => b.achievementPoints - a.achievementPoints).slice(0, 5);
+                const createListHTML = (list, type) => {
+                    if (list.length === 0) return '<p class="text-slate-500 text-center py-4">Belum ada data.</p>';
+                    return list.map(student => {
+                        const points = type === 'violation' ? student.violationPoints : student.achievementPoints;
+                        const studentClass = this.data.classes.find(c => c.id === student.classId);
+                        return `<div class="flex items-center justify-between p-3 hover:bg-slate-700 rounded-lg">
+                                    <div><p class="font-semibold text-white">${student.name}</p><p class="text-sm text-slate-400">${studentClass?.name || 'Kelas Dihapus'}</p></div>
+                                    <span class="font-bold text-lg ${type === 'violation' ? 'text-red-400' : 'text-green-400'}">${type === 'violation' ? '-' : '+'}${points}</span>
+                                </div>`;
+                    }).join('');
+                };
+                dashboardEl.innerHTML = `
+                    <div class="glass-card p-6 rounded-lg">
+                        <h3 class="text-xl font-semibold text-white mb-4 flex items-center gap-2"><i data-lucide="trending-down" class="text-red-400"></i>Top 5 Pelanggaran</h3>
+                        <div class="space-y-2">${createListHTML(topViolations, 'violation')}</div>
+                    </div>
+                    <div class="glass-card p-6 rounded-lg">
+                        <h3 class="text-xl font-semibold text-white mb-4 flex items-center gap-2"><i data-lucide="trending-up" class="text-green-400"></i>Top 5 Penghargaan</h3>
+                        <div class="space-y-2">${createListHTML(topAchievements, 'achievement')}</div>
+                    </div>`;
+                lucide.createIcons();
+            },
+            renderSummaryDashboard() {
+                const summaryEl = document.getElementById('summary-dashboard-view');
+                const placeholderEl = document.getElementById('placeholder-view');
+                 if (this.data.records.length === 0) {
+                     summaryEl.innerHTML = `
+                        <div class="glass-card p-8 rounded-lg flex flex-col items-center justify-center text-center">
+                            <i data-lucide="folder-search" class="w-20 h-20 text-slate-600 mb-4"></i>
+                            <h2 class="text-2xl font-semibold text-slate-300">Belum Ada Rekapan</h2>
+                            <p class="text-slate-500 mt-1">Tidak ada catatan pelanggaran atau penghargaan yang tercatat.</p>
+                        </div>`;
+                     summaryEl.classList.remove('hidden');
+                     placeholderEl.classList.add('hidden');
+                     lucide.createIcons();
+                     return;
+                }
+
+                placeholderEl.classList.add('hidden');
+                summaryEl.classList.remove('hidden');
+
+                const violationCounts = {};
+                this.data.records.filter(r => r.type === 'violation').forEach(r => {
+                    violationCounts[r.itemId] = (violationCounts[r.itemId] || 0) + 1;
+                });
+                const achievementCounts = {};
+                this.data.records.filter(r => r.type === 'achievement').forEach(r => {
+                    achievementCounts[r.itemId] = (achievementCounts[r.itemId] || 0) + 1;
+                });
+
+                const createListHTML = (counts, type) => {
+                    const source = type === 'violation' ? this.data.violations : this.data.achievements;
+                    if (Object.keys(counts).length === 0) return '<p class="text-slate-500 text-center py-4">Belum ada data.</p>';
+
+                    return Object.entries(counts)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([itemId, count]) => {
+                            const item = source.find(i => i.id == itemId);
+                            return `<div class="flex items-center justify-between p-3">
+                                        <p class="font-semibold text-white">${item?.name || 'Item Dihapus'}</p>
+                                        <span class="font-bold text-slate-400">${count} kali</span>
+                                    </div>`;
+                        }).join('');
+                };
+
+                summaryEl.innerHTML = `
+                    <div class="glass-card p-6 rounded-lg">
+                        <h3 class="text-xl font-semibold text-white mb-4 flex items-center gap-2"><i data-lucide="shield-x" class="text-red-400"></i>Rekapitulasi Pelanggaran</h3>
+                        <p class="text-sm text-slate-400 mb-4">Total terjadi: <strong>${Object.values(violationCounts).reduce((a, b) => a + b, 0)}</strong> pelanggaran.</p>
+                        <div class="space-y-2">${createListHTML(violationCounts, 'violation')}</div>
+                    </div>
+                    <div class="glass-card p-6 rounded-lg">
+                        <h3 class="text-xl font-semibold text-white mb-4 flex items-center gap-2"><i data-lucide="award" class="text-green-400"></i>Rekapitulasi Penghargaan</h3>
+                        <p class="text-sm text-slate-400 mb-4">Total diberikan: <strong>${Object.values(achievementCounts).reduce((a, b) => a + b, 0)}</strong> penghargaan.</p>
+                        <div class="space-y-2">${createListHTML(achievementCounts, 'achievement')}</div>
+                    </div>
+                `;
+                lucide.createIcons();
+            },
+            renderStudentList(filter = '') {
+                const listEl = document.getElementById('student-list');
+                listEl.innerHTML = '';
+                const filteredStudents = this.data.students.filter(s => s.name.toLowerCase().includes(filter.toLowerCase()));
+                if (filteredStudents.length === 0) {
+                    listEl.innerHTML = `<p class="text-slate-500">Siswa tidak ditemukan.</p>`;
+                    return;
+                }
+
+                if (filter) {
+                    filteredStudents.forEach(student => {
+                        const studentClass = this.data.classes.find(c => c.id === student.classId);
+                        const el = document.createElement('div');
+                        el.className = `student-item p-3 rounded-lg hover:bg-slate-700 cursor-pointer border border-transparent hover:border-orange-500/50 transition-all duration-200`;
+                        el.dataset.studentId = student.id;
+                        if (this.data.currentStudentId === student.id) {
+                            el.classList.add('bg-slate-700', 'border-orange-500/50');
+                        }
+                        el.innerHTML = `<div class="flex justify-between items-center">
+                                            <div class="flex-grow min-w-0" onclick="app.showStudentDetail(${student.id})">
+                                                <p class="font-semibold text-white truncate">${student.name}</p>
+                                                <p class="text-sm text-slate-400">${studentClass ? studentClass.name : 'Kelas tidak diketahui'}</p>
+                                            </div>
+                                            <div class="flex gap-1 flex-shrink-0 ml-2">
+                                                <button onclick="event.stopPropagation(); app.openEditStudentModal(${student.id})" class="text-slate-400 hover:text-orange-400 p-1 rounded"><i data-lucide="file-pen-line" class="w-4 h-4"></i></button>
+                                                <button onclick="event.stopPropagation(); app.confirmDeleteStudent(${student.id})" class="text-slate-400 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                            </div>
+                                        </div>`;
+                        listEl.appendChild(el);
+                    });
+                } else {
+                    const groupedStudents = filteredStudents.reduce((acc, student) => {
+                        const classId = student.classId || 'no-class';
+                        (acc[classId] = acc[classId] || []).push(student);
+                        return acc;
+                    }, {});
+
+                    const sortedClassIds = Object.keys(groupedStudents).sort((a, b) => {
+                        const classA = this.data.classes.find(c => c.id == a)?.name || 'Z'; 
+                        const classB = this.data.classes.find(c => c.id == b)?.name || 'Z';
+                        return classA.localeCompare(classB);
+                    });
+
+                    sortedClassIds.forEach(classId => {
+                        const studentClass = this.data.classes.find(c => c.id == classId);
+                        const studentsInClass = groupedStudents[classId];
+                        const classGroupId = `class-group-${classId}`;
+                        
+                        const groupWrapper = document.createElement('div');
+                        groupWrapper.className = 'border-b border-slate-700/50 last:border-b-0';
+
+                        const header = document.createElement('div');
+                        header.className = 'flex justify-between items-center p-3 cursor-pointer hover:bg-slate-700/50';
+                        header.onclick = () => this.toggleCollapse(classGroupId);
+                        header.innerHTML = `
+                            <h3 class="font-semibold text-blue-400">${studentClass ? studentClass.name : 'Tanpa Kelas'}</h3>
+                            <i data-lucide="chevron-down" class="w-5 h-5 transition-transform duration-300"></i>
+                        `;
+                        
+                        const content = document.createElement('div');
+                        content.id = classGroupId;
+                        content.className = 'pl-3 pb-2 hidden'; 
+                        
+                        studentsInClass.sort((a,b) => a.name.localeCompare(b.name)).forEach(student => {
+                             const el = document.createElement('div');
+                             el.className = `student-item p-3 rounded-lg hover:bg-slate-700 cursor-pointer border border-transparent hover:border-orange-500/50 transition-all duration-200`;
+                             el.dataset.studentId = student.id;
+                             if (this.data.currentStudentId === student.id) {
+                                el.classList.add('bg-slate-700', 'border-orange-500/50');
+                             }
+                             el.innerHTML = `<div class="flex justify-between items-center">
+                                                <div class="flex-grow min-w-0" onclick="app.showStudentDetail(${student.id})">
+                                                    <p class="font-semibold text-white truncate">${student.name}</p>
+                                                </div>
+                                                <div class="flex gap-1 flex-shrink-0 ml-2">
+                                                    <button onclick="event.stopPropagation(); app.openEditStudentModal(${student.id})" class="text-slate-400 hover:text-orange-400 p-1 rounded"><i data-lucide="file-pen-line" class="w-4 h-4"></i></button>
+                                                    <button onclick="event.stopPropagation(); app.confirmDeleteStudent(${student.id})" class="text-slate-400 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                                </div>
+                                            </div>`;
+                             content.appendChild(el);
+                        });
+                        
+                        groupWrapper.appendChild(header);
+                        groupWrapper.appendChild(content);
+                        listEl.appendChild(groupWrapper);
+                    });
+                }
+                
+                lucide.createIcons();
+            },
+            showStudentDetail(studentId) {
+                // Update active state in list
+                document.querySelectorAll('.student-item').forEach(el => {
+                    el.classList.remove('bg-slate-700', 'border-orange-500/50');
+                    if (el.dataset.studentId == studentId) {
+                         el.classList.add('bg-slate-700', 'border-orange-500/50');
+                    }
+                });
+
+                this.data.currentStudentId = studentId;
+                this.data.activeView = 'student-detail';
+                document.getElementById('main-dashboard-view').classList.add('hidden');
+                document.getElementById('summary-dashboard-view').classList.add('hidden');
+                document.getElementById('placeholder-view').classList.add('hidden');
+                 const student = this.data.students.find(s => s.id === studentId);
+                const studentClass = this.data.classes.find(c => c.id === student.classId);
+                const detailView = document.getElementById('student-detail-view');
+                detailView.classList.remove('hidden');
+                let totalPoints = 0;
+                this.data.records.filter(r => r.studentId === studentId).forEach(record => {
+                    const item = record.type === 'violation' ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
+                    if (item) totalPoints += (record.type === 'violation' ? -item.points : item.points);
+                });
+                let pointsClass = totalPoints < 0 ? 'bg-red-500' : totalPoints > 0 ? 'bg-green-500' : 'bg-gray-500';
+                detailView.innerHTML = `
+                    <div class="flex flex-wrap justify-between items-start mb-4 gap-4">
+                        <div><h2 class="text-2xl md:text-3xl font-bold text-white">${student.name}</h2><p class="text-slate-400">${studentClass?.name || 'Kelas Dihapus'}</p></div>
+                        <div><span class="px-4 py-2 rounded-full font-semibold text-white ${pointsClass}">${totalPoints} Poin</span></div>
+                    </div>
+                    <div class="glass-card p-4 rounded-lg mb-6"><h3 class="text-lg font-semibold text-white mb-3">Informasi Siswa</h3>
+                        <div class="space-y-3 text-sm">
+                            <div class="flex items-start gap-2"><i data-lucide="hash" class="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0"></i><div><span class="text-slate-400">NISN:</span><br>${student.nisn || '-'}</div></div>
+                            <div class="flex items-start gap-2"><i data-lucide="phone" class="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0"></i><div><span class="text-slate-400">No. HP:</span><br>${student.phone || '-'}</div></div>
+                            <div class="flex items-start gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0"></i><div><span class="text-slate-400">Alamat:</span><br>${student.address || '-'}</div></div>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                        <h3 class="text-xl font-semibold text-white">Riwayat Catatan</h3>
+                        <div class="flex gap-2">
+                             <button onclick="app.exportToExcel()" class="bg-green-700 hover:bg-green-600 text-white font-bold py-2 px-3 rounded-lg flex items-center gap-2 text-sm"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Excel</button>
+                             <button onclick="app.exportToPDF()" class="bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-lg flex items-center gap-2 text-sm"><i data-lucide="file-text" class="w-4 h-4"></i> PDF</button>
+                             <button onclick="app.openAddRecordModal()" class="bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-3 rounded-lg flex items-center gap-2 text-sm"><i data-lucide="plus" class="w-4 h-4"></i> Tambah</button>
+                        </div>
+                    </div>
+                    <div id="record-list" class="space-y-3 max-h-[45vh] overflow-y-auto pr-2"></div>`;
+                this.renderRecordList();
+                lucide.createIcons();
+            },
+            renderRecordList() {
+                if (!this.data.currentStudentId) return;
+                const listEl = document.getElementById('record-list');
+                if (!listEl) return;
+                listEl.innerHTML = '';
+                const studentRecords = this.data.records.filter(r => r.studentId === this.data.currentStudentId).sort((a, b) => new Date(b.date) - new Date(a.date));
+                if (studentRecords.length === 0) {
+                    listEl.innerHTML = `<div class="text-center py-8 text-slate-500">Belum ada catatan.</div>`;
+                    return;
+                }
+                studentRecords.forEach(record => {
+                    const isViolation = record.type === 'violation';
+                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
+                    const points = item ? (isViolation ? -item.points : item.points) : 0;
+                    const el = document.createElement('div');
+                    el.className = `bg-slate-800 p-4 rounded-lg border-l-4 ${isViolation ? 'border-red-500' : 'border-green-500'}`;
+                    el.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div class="flex items-center gap-3 flex-grow min-w-0">
+                                <i data-lucide="${isViolation ? 'shield-x' : 'award'}" class="w-6 h-6 ${isViolation ? 'text-red-500' : 'text-green-500'} flex-shrink-0 mt-1"></i>
+                                <div class="min-w-0"><p class="font-bold text-white truncate">${item ? item.name : 'Item Dihapus'}</p>
+                                    <p class="text-sm text-slate-400">${new Date(record.date).toLocaleDateString('id-ID', {day: '2-digit', month: 'long', year: 'numeric'})}</p>
+                                    ${record.notes ? `<p class="text-sm italic mt-1 text-slate-500">"${record.notes}"</p>` : ''}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-4 ml-4 flex-shrink-0">
+                               <span class="font-semibold text-lg ${points < 0 ? 'text-red-400' : 'text-green-400'}">${points > 0 ? '+' : ''}${points}</span>
+                               <button onclick="app.openEditRecordModal(${record.id})" class="text-slate-400 hover:text-orange-400 transition-colors"><i data-lucide="file-pen-line" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>`;
+                    listEl.appendChild(el);
+                });
+                lucide.createIcons();
+            },
+            addRecord() { 
+                this.data.records.push({ id: Date.now(), studentId: this.data.currentStudentId, type: document.getElementById('recordType').value, itemId: parseInt(document.getElementById('recordItem').value), notes: document.getElementById('recordNotes').value, date: document.getElementById('recordDate').value, });
+                this.saveAllData(); 
+                this.showStudentDetail(this.data.currentStudentId); 
+                this.closeAddRecordModal();
+            },
+            saveRecord() {
+                const recordId = parseInt(document.getElementById('editRecordId').value);
+                const record = this.data.records.find(r => r.id === recordId);
+                if (record) {
+                    record.date = document.getElementById('editRecordDate').value; record.type = document.getElementById('editRecordType').value;
+                    record.itemId = parseInt(document.getElementById('editRecordItem').value); record.notes = document.getElementById('editRecordNotes').value;
+                }
+                this.saveAllData(); this.showStudentDetail(this.data.currentStudentId); this.closeEditRecordModal();
+            },
+            addMasterDataItem() {
+                const type = this.data.currentMasterDataType, name = document.getElementById('masterDataName').value, points = document.getElementById('masterDataPoints').value; if (!name) return;
+                const target = (type === 'Kelas') ? this.data.classes : (type === 'Pelanggaran') ? this.data.violations : this.data.achievements;
+                target.push({ id: Date.now(), name: name, ...(type !== 'Kelas' && { points: parseInt(points) || 0 }) });
+                this.saveAllData(); this.renderMasterDataList(); document.getElementById('masterDataForm').reset();
+            },
+            deleteMasterDataItem(itemId, type) { 
+                const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
+                this.data[key] = this.data[key].filter(i => i.id !== itemId);
+                this.saveAllData(); this.renderMasterDataList(); 
+                if (this.data.currentStudentId) this.showStudentDetail(this.data.currentStudentId);
+                else this.refreshActiveDashboard();
+            },
+            saveMasterDataItem() {
+                const id = parseInt(document.getElementById('editMasterId').value), type = document.getElementById('editMasterType').value;
+                const name = document.getElementById('editMasterName').value, points = parseInt(document.getElementById('editMasterPoints').value);
+                const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
+                const item = this.data[key].find(i => i.id === id); if (item) { item.name = name; if (type !== 'Kelas') item.points = points; }
+                this.saveAllData(); this.renderMasterDataList(); 
+                if (this.data.currentStudentId) this.showStudentDetail(this.data.currentStudentId);
+                else this.refreshActiveDashboard();
+                this.closeEditMasterModal();
+            },
+            
+            // --- Re-usable functions ---
+            openAddRecordModal() {
+                document.getElementById('recordDate').value = new Date().toISOString().slice(0, 10);
+                this.updateRecordItemOptions('add');
+                document.getElementById('addRecordModal').classList.remove('hidden');
+            },
+            closeAddRecordModal() { document.getElementById('addRecordForm').reset(); document.getElementById('addRecordModal').classList.add('hidden'); },
+            openEditRecordModal(recordId) {
+                const record = this.data.records.find(r => r.id === recordId);
+                if (!record) return;
+                document.getElementById('editRecordId').value = record.id;
+                document.getElementById('editRecordDate').value = record.date;
+                document.getElementById('editRecordType').value = record.type;
+                document.getElementById('editRecordNotes').value = record.notes;
+                this.updateRecordItemOptions('edit', record.itemId);
+                document.getElementById('editRecordModal').classList.remove('hidden');
+            },
+            closeEditRecordModal() { document.getElementById('editRecordForm').reset(); document.getElementById('editRecordModal').classList.add('hidden'); },
+            openSettingsModal() {
+                document.getElementById('settingSchoolName').value = this.data.settings.schoolName;
+                document.getElementById('settingTeacherName').value = this.data.settings.teacherName;
+                document.getElementById('settingTeacherNip').value = this.data.settings.teacherNip;
+                document.getElementById('settingToken').value = ""; // Clear for security
+                document.getElementById('settingsModal').classList.remove('hidden');
+            },
+            closeSettingsModal() { document.getElementById('settingsModal').classList.add('hidden'); },
+            updateRecordItemOptions(mode = 'add', selectedItemId = null) {
+                const typeEl = document.getElementById(mode === 'add' ? 'recordType' : 'editRecordType');
+                const itemEl = document.getElementById(mode === 'add' ? 'recordItem' : 'editRecordItem');
+                typeEl.innerHTML = '<option value="violation">Pelanggaran</option><option value="achievement">Penghargaan</option>';
+                const items = typeEl.value === 'violation' ? this.data.violations : this.data.achievements;
+                itemEl.innerHTML = '';
+                items.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item.id;
+                    option.textContent = `${item.name} (${item.points} poin)`;
+                    if (item.id === selectedItemId) option.selected = true;
+                    itemEl.appendChild(option);
+                });
+            },
+            showMasterData(type) {
+                this.data.currentMasterDataType = type;
+                document.getElementById('masterDataTitle').textContent = `Kelola Data ${type}`;
+                const pointsInput = document.getElementById('masterDataPoints');
+                pointsInput.style.display = type === 'Kelas' ? 'none' : 'block';
+                pointsInput.required = type !== 'Kelas';
+                this.renderMasterDataList();
+                document.getElementById('masterDataModal').classList.remove('hidden');
+            },
+            closeMasterDataModal() { document.getElementById('masterDataModal').classList.add('hidden'); },
+            renderMasterDataList() {
+                const type = this.data.currentMasterDataType;
+                const listEl = document.getElementById('masterDataList');
+                const items = (type === 'Kelas') ? this.data.classes : (type === 'Pelanggaran') ? this.data.violations : this.data.achievements;
+                listEl.innerHTML = '';
+                items.forEach(item => {
+                    const el = document.createElement('div');
+                    el.className = 'flex justify-between items-center p-3 bg-slate-700/50 rounded-lg';
+                    el.innerHTML = `<div><p class="text-white">${item.name}</p>${item.points != null ? `<span class="text-sm text-blue-400">${item.points} poin</span>` : ''}</div>
+                        <div class="flex gap-3">
+                            <button onclick="app.openEditMasterModal(${item.id}, '${type}')" class="text-yellow-400 hover:text-yellow-300"><i data-lucide="file-pen-line" class="w-5 h-5"></i></button>
+                            <button onclick="app.deleteMasterDataItem(${item.id}, '${type}')" class="text-red-500 hover:text-red-400"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                        </div>`;
+                    listEl.appendChild(el);
+                });
+                lucide.createIcons();
+            },
+            openEditMasterModal(itemId, type) {
+                const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
+                const item = this.data[key].find(i => i.id === itemId);
+                if (!item) return;
+                document.getElementById('editMasterId').value = item.id;
+                document.getElementById('editMasterType').value = type;
+                document.getElementById('editMasterName').value = item.name;
+                const pointsContainer = document.getElementById('editMasterPointsContainer');
+                pointsContainer.style.display = type !== 'Kelas' ? 'block' : 'none';
+                if (type !== 'Kelas') document.getElementById('editMasterPoints').value = item.points;
+                document.getElementById('editMasterModal').classList.remove('hidden');
+            },
+            closeEditMasterModal() { document.getElementById('editMasterModal').classList.add('hidden'); },
+            exportToPDF() {
+                if (!this.data.currentStudentId) return;
+                const student = this.data.students.find(s => s.id === this.data.currentStudentId);
+                const studentClass = this.data.classes.find(c => c.id === student.classId);
+                const { schoolName, teacherName, teacherNip } = this.data.settings;
+                const doc = new window.jspdf.jsPDF();
+                doc.setFontSize(16); doc.text(schoolName, 14, 20);
+                doc.setFontSize(12); doc.text(`Riwayat Catatan: ${student.name}`, 14, 28);
+                doc.setFontSize(10); doc.setTextColor(100);
+                doc.text(`Kelas: ${studentClass?.name || 'Kelas Dihapus'}`, 14, 34);
+                const tableData = this.data.records.filter(r => r.studentId === student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map(record => {
+                    const isViolation = record.type === 'violation';
+                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
+                    return [new Date(record.date).toLocaleDateString('id-ID'), isViolation ? 'Pelanggaran' : 'Penghargaan', item ? item.name : 'Item Dihapus', item ? (isViolation ? -item.points : `+${item.points}`) : 0, record.notes];
+                });
+                doc.autoTable({ startY: 42, head: [['Tanggal', 'Jenis', 'Keterangan', 'Poin', 'Catatan']], body: tableData, theme: 'grid', headStyles: { fillColor: [30, 41, 59] } });
+                const finalY = doc.lastAutoTable.finalY || 60;
+                doc.setFontSize(10);
+                doc.text(`Mengetahui,`, 150, finalY + 15); doc.text(teacherName, 150, finalY + 35); doc.text(teacherNip, 150, finalY + 40);
+                doc.save(`riwayat_${student.name.replace(/\s/g, '_')}.pdf`);
+            },
+            exportToExcel() {
+                if (!this.data.currentStudentId) return;
+                const student = this.data.students.find(s => s.id === this.data.currentStudentId);
+                const dataToExport = this.data.records.filter(r => r.studentId === student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map(record => {
+                    const isViolation = record.type === 'violation';
+                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
+                    return { 'Tanggal': new Date(record.date).toLocaleDateString('id-ID'), 'Jenis': isViolation ? 'Pelanggaran' : 'Penghargaan', 'Keterangan': item ? item.name : 'Item Dihapus', 'Poin': item ? (isViolation ? -item.points : item.points) : 0, 'Catatan': record.notes };
+                });
+                const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Riwayat');
+                XLSX.writeFile(workbook, `riwayat_${student.name.replace(/\s/g, '_')}.xlsx`);
+            },
+            showConfirmationModal(message, onConfirm, confirmClass = 'bg-orange-600 hover:bg-orange-500') {
+                const modal = document.getElementById('confirmationModal');
+                modal.querySelector('#confirmationMessage').textContent = message;
+                const confirmBtn = modal.querySelector('#confirmActionBtn');
+                confirmBtn.className = `text-white font-bold py-2 px-4 rounded-lg ${confirmClass}`;
+                const newConfirmBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+                newConfirmBtn.addEventListener('click', () => { onConfirm(); this.closeConfirmationModal(); }, { once: true });
+                modal.classList.remove('hidden');
+            },
+            closeConfirmationModal() { document.getElementById('confirmationModal').classList.add('hidden'); },
+
+            // --- RENDER ALL MODALS ---
+            renderModals() {
+                const container = document.getElementById('modal-container');
+                container.innerHTML = `
+                    <!-- Add Student Modal -->
+                    <div id="addStudentModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Tambah Siswa Baru</h2><form id="addStudentForm" class="space-y-4">
+                        <div><label class="text-sm">Nama Lengkap</label><input type="text" id="addStudentName" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div>
+                        <div><label class="text-sm">Kelas</label><select id="addStudentClass" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div>
+                        <div><label class="text-sm">NISN</label><input type="text" id="addStudentNisn" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
+                        <div><label class="text-sm">Alamat</label><textarea id="addStudentAddress" rows="2" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div>
+                        <div><label class="text-sm">Nomor Handphone</label><input type="tel" id="addStudentPhone" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
+                        <div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeAddStudentModal()" class="bg-slate-600 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-orange-600 py-2 px-4 rounded-lg">Simpan</button></div>
+                    </form></div></div></div>
+                    <!-- Edit Student Modal -->
+                    <div id="editStudentModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Edit Data Siswa</h2><form id="editStudentForm" class="space-y-4">
+                        <input type="hidden" id="editStudentId">
+                        <div><label class="text-sm">Nama Lengkap</label><input type="text" id="editStudentName" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div>
+                        <div><label class="text-sm">Kelas</label><select id="editStudentClass" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div>
+                        <div><label class="text-sm">NISN</label><input type="text" id="editStudentNisn" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
+                        <div><label class="text-sm">Alamat</label><textarea id="editStudentAddress" rows="2" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div>
+                        <div><label class="text-sm">Nomor Handphone</label><input type="tel" id="editStudentPhone" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
+                        <div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeEditStudentModal()" class="bg-slate-600 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-yellow-600 py-2 px-4 rounded-lg">Simpan Perubahan</button></div>
+                    </form></div></div></div>
+                    <!-- Import Excel Modal -->
+                    <div id="importModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-2xl modal-content"><div class="p-6">
+                        <h2 class="text-xl font-bold mb-2 text-white">Import Siswa dari Excel</h2>
+                        <p class="text-sm text-slate-400 mb-4">Pastikan file Excel memiliki kolom: nama, kelas, nisn, alamat, nomor handphone.</p>
+                        <form id="importExcelForm"><button type="submit" class="w-full bg-slate-700 hover:bg-slate-600 p-4 border-2 border-dashed border-slate-500 rounded-lg flex flex-col items-center justify-center gap-2"><i data-lucide="upload-cloud" class="w-8 h-8 text-orange-400"></i><span>Klik untuk memilih file .xlsx atau .xls</span></button><input type="file" id="excelFileInput" class="hidden" accept=".xlsx, .xls"></form>
+                        <div id="excelPreview" class="mt-4 max-h-60 overflow-y-auto"></div>
+                        <div class="pt-4 flex justify-end gap-3"><button type="button" onclick="app.closeImportModal()" class="bg-slate-600 py-2 px-4 rounded-lg">Batal</button><button type="button" id="confirmImportBtn" onclick="app.confirmImport()" class="bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg hidden">Konfirmasi Import</button></div>
+                    </div></div></div>
+                    <!-- Add Record Modal -->
+                    <div id="addRecordModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Tambah Catatan</h2><form id="addRecordForm" class="space-y-4"><div><label class="text-sm">Tanggal</label><input type="date" id="recordDate" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div><div><label class="text-sm">Jenis</label><select id="recordType" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Detail</label><select id="recordItem" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Catatan</label><textarea id="recordNotes" rows="3" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeAddRecordModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-orange-600 hover:bg-orange-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
+                    <!-- Edit Record Modal -->
+                    <div id="editRecordModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Edit Catatan</h2><form id="editRecordForm" class="space-y-4"><input type="hidden" id="editRecordId"><div><label class="text-sm">Tanggal</label><input type="date" id="editRecordDate" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div><div><label class="text-sm">Jenis</label><select id="editRecordType" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Detail</label><select id="editRecordItem" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Catatan</label><textarea id="editRecordNotes" rows="3" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeEditRecordModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
+                    <!-- Master Data Modal -->
+                    <div id="masterDataModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-xl modal-content"><div class="p-6"><h2 id="masterDataTitle" class="text-xl font-bold mb-4 text-white"></h2><form id="masterDataForm" class="flex gap-2 items-center mb-4"><input type="text" id="masterDataName" placeholder="Nama item..." class="flex-grow p-2 bg-slate-700 rounded-lg" required><input type="number" id="masterDataPoints" placeholder="Poin" class="w-24 p-2 bg-slate-700 rounded-lg"><button type="submit" class="bg-orange-600 hover:bg-orange-500 py-2 px-4 rounded-lg">Tambah</button></form><div id="masterDataList" class="space-y-2 pr-2"></div><div class="mt-6 flex justify-end"><button type="button" onclick="app.closeMasterDataModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Tutup</button></div></div></div></div>
+                    <!-- Edit Master Modal -->
+                    <div id="editMasterModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold text-white">Edit Item</h2><form id="editMasterForm" class="space-y-4"><input type="hidden" id="editMasterId"><input type="hidden" id="editMasterType"><div><label class="text-sm">Nama Item</label><input type="text" id="editMasterName" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div id="editMasterPointsContainer"><label class="text-sm">Poin</label><input type="number" id="editMasterPoints" class="mt-1 w-full p-2 bg-slate-700 rounded-lg"></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeEditMasterModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
+                    <!-- Settings Modal -->
+                    <div id="settingsModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Pengaturan</h2><form id="settingsForm" class="space-y-4"><div><label class="text-sm">Nama Sekolah</label><input type="text" id="settingSchoolName" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div><label class="text-sm">Nama Guru</label><input type="text" id="settingTeacherName" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div><label class="text-sm">NIP Guru</label><input type="text" id="settingTeacherNip" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div><label class="text-sm">Token Baru</label><input type="password" id="settingToken" placeholder="Kosongkan jika tidak diubah" class="mt-1 w-full p-2 bg-slate-700 rounded-lg"></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeSettingsModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-orange-600 hover:bg-orange-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
+                    <!-- Confirmation Modal -->
+                    <div id="confirmationModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6 text-center"><i data-lucide="alert-triangle" class="w-16 h-16 text-yellow-400 mx-auto mb-4"></i><h2 class="text-xl font-bold mb-2 text-white">Apakah Anda Yakin?</h2><p id="confirmationMessage" class="text-slate-300 mb-6"></p><div class="flex justify-center gap-4"><button type="button" onclick="app.closeConfirmationModal()" class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-6 rounded-lg">Batal</button><button type="button" id="confirmActionBtn" class="">Yakin</button></div></div></div></div>
+                `;
+            }
+        };
+
+        // --- Initializing the app ---
+        document.addEventListener('DOMContentLoaded', () => { app.init(); });
+    </script>
+</body>
+</html>
+
