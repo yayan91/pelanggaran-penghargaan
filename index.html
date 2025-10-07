@@ -133,7 +133,7 @@
             <!-- Summary Dashboard View -->
             <div id="summary-dashboard-view" class="lg:col-span-2 space-y-8 hidden"></div>
 
-            <!-- Student Detail View -->
+            <!-- Student Detail View (re-used for master data) -->
             <div id="student-detail-view" class="lg:col-span-2 glass-card p-6 rounded-lg hidden"></div>
             
             <!-- Placeholder View (for when no students exist) -->
@@ -212,18 +212,9 @@
                 }
             },
             attachEventListeners() {
+                // Event listeners will be attached dynamically when modals/views are rendered
+                // to prevent errors on initial load.
                 document.getElementById('searchStudent').addEventListener('input', (e) => this.renderStudentList(e.target.value));
-                document.getElementById('addStudentForm').addEventListener('submit', (e) => { e.preventDefault(); this.addStudent(); });
-                document.getElementById('editStudentForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveStudent(); });
-                document.getElementById('importExcelForm').addEventListener('submit', (e) => { e.preventDefault(); document.getElementById('excelFileInput').click(); });
-                document.getElementById('excelFileInput').addEventListener('change', (e) => this.handleExcelUpload(e));
-                document.getElementById('addRecordForm').addEventListener('submit', (e) => { e.preventDefault(); this.addRecord(); });
-                document.getElementById('recordType').addEventListener('change', () => this.updateRecordItemOptions('add'));
-                document.getElementById('editRecordForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveRecord(); });
-                document.getElementById('editRecordType').addEventListener('change', () => this.updateRecordItemOptions('edit'));
-                document.getElementById('masterDataForm').addEventListener('submit', (e) => { e.preventDefault(); this.addMasterDataItem(); });
-                document.getElementById('editMasterForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveMasterDataItem(); });
-                document.getElementById('settingsForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveSettings(); });
                 document.getElementById('restoreFile').addEventListener('change', (e) => this.handleRestore(e));
             },
 
@@ -810,9 +801,129 @@
                 this.closeEditMasterModal();
             },
             
-            // --- Re-usable functions ---
+            // --- MASTER DATA & MODALS ---
+            showMasterData(type) {
+                this.data.currentMasterDataType = type;
+                this.data.currentStudentId = null;
+                this.data.activeView = 'master-data';
+                
+                document.getElementById('main-dashboard-view').classList.add('hidden');
+                document.getElementById('summary-dashboard-view').classList.add('hidden');
+                document.getElementById('placeholder-view').classList.add('hidden');
+
+                const detailView = document.getElementById('student-detail-view');
+                detailView.classList.remove('hidden');
+                
+                const hasPoints = type !== 'Kelas';
+                const plural = type === 'Kelas' ? 'Kelas' : type;
+                detailView.innerHTML = `
+                    <h2 class="text-2xl font-bold text-white mb-4">Kelola Data ${plural}</h2>
+                    <div class="glass-card p-4 rounded-lg mb-6">
+                        <form id="masterDataForm" class="flex flex-wrap items-end gap-3">
+                            <div class="flex-grow">
+                                <label for="masterDataName" class="text-sm text-slate-400">Nama ${type}</label>
+                                <input type="text" id="masterDataName" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500" required>
+                            </div>
+                            ${hasPoints ? `
+                            <div class="w-24">
+                                <label for="masterDataPoints" class="text-sm text-slate-400">Poin</label>
+                                <input type="number" id="masterDataPoints" min="1" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500" required>
+                            </div>` : ''}
+                            <button type="submit" class="bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i> Tambah</button>
+                        </form>
+                    </div>
+                    <div id="master-data-list" class="space-y-2 max-h-[60vh] overflow-y-auto pr-2"></div>
+                `;
+                this.renderMasterDataList();
+                lucide.createIcons();
+                document.getElementById('masterDataForm').addEventListener('submit', (e) => { e.preventDefault(); this.addMasterDataItem(); });
+            },
+            renderMasterDataList() {
+                const type = this.data.currentMasterDataType;
+                const listEl = document.getElementById('master-data-list');
+                if (!listEl) return;
+                const source = type === 'Kelas' ? this.data.classes : type === 'Pelanggaran' ? this.data.violations : this.data.achievements;
+                
+                if (source.length === 0) {
+                    listEl.innerHTML = `<p class="text-slate-500 text-center py-4">Belum ada data.</p>`;
+                    return;
+                }
+                listEl.innerHTML = source.sort((a,b) => a.name.localeCompare(b.name)).map(item => `
+                    <div class="bg-slate-800 p-3 rounded-lg flex justify-between items-center">
+                        <div>
+                            <p class="font-semibold text-white">${item.name}</p>
+                            ${item.points != null ? `<p class="text-sm text-slate-400">${item.points} poin</p>` : ''}
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="app.openEditMasterModal(${item.id}, '${type}')" class="text-slate-400 hover:text-orange-400"><i data-lucide="file-pen-line" class="w-4 h-4"></i></button>
+                            <button onclick="app.confirmDeleteMasterDataItem(${item.id}, '${type}')" class="text-slate-400 hover:text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+                `).join('');
+                lucide.createIcons();
+            },
+            confirmDeleteMasterDataItem(itemId, type) {
+                const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
+                const item = this.data[key].find(i => i.id === itemId);
+                if (!item) return;
+                let warningMessage = `Apakah Anda yakin ingin menghapus "${item.name}"?`;
+                if (type === 'Kelas') {
+                    const studentCount = this.data.students.filter(s => s.classId === itemId).length;
+                    if(studentCount > 0) warningMessage += ` Ada ${studentCount} siswa di kelas ini. Mereka akan menjadi "Tanpa Kelas".`;
+                } else {
+                    const recordCount = this.data.records.filter(r => r.itemId === itemId && r.type.toLowerCase().startsWith(type.toLowerCase().slice(0, 5))).length;
+                    if (recordCount > 0) warningMessage += ` Ada ${recordCount} catatan terkait item ini. Catatan tersebut akan menampilkan "Item Dihapus".`
+                }
+                this.showConfirmationModal( warningMessage, () => this.deleteMasterDataItem(itemId, type), 'bg-red-600 hover:bg-red-500' );
+            },
+            openEditMasterModal(itemId, type) {
+                const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
+                const item = this.data[key].find(i => i.id === itemId);
+                if (!item) return;
+                document.getElementById('editMasterId').value = item.id;
+                document.getElementById('editMasterType').value = type;
+                document.getElementById('editMasterName').value = item.name;
+                const pointsInput = document.getElementById('editMasterPoints');
+                if (type !== 'Kelas') {
+                    pointsInput.value = item.points;
+                    pointsInput.parentElement.classList.remove('hidden');
+                } else {
+                    pointsInput.parentElement.classList.add('hidden');
+                }
+                document.getElementById('editMasterModal').classList.remove('hidden');
+            },
+            closeEditMasterModal() { document.getElementById('editMasterForm').reset(); document.getElementById('editMasterModal').classList.add('hidden'); },
+            renderModals() {
+                const modalContainer = document.getElementById('modal-container');
+                if (!modalContainer) return;
+                modalContainer.innerHTML = `
+                    <div id="addStudentModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-lg"><form id="addStudentForm" onsubmit="event.preventDefault(); app.addStudent();"><h2 class="text-xl font-bold text-white mb-4">Tambah Siswa Baru</h2><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label for="addStudentName" class="text-sm text-slate-400">Nama Lengkap</label><input type="text" id="addStudentName" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="addStudentClass" class="text-sm text-slate-400">Kelas</label><select id="addStudentClass" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></select></div><div><label for="addStudentNisn" class="text-sm text-slate-400">NISN</label><input type="text" id="addStudentNisn" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></div><div><label for="addStudentPhone" class="text-sm text-slate-400">No. HP</label><input type="text" id="addStudentPhone" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></div><div class="md:col-span-2"><label for="addStudentAddress" class="text-sm text-slate-400">Alamat</label><textarea id="addStudentAddress" rows="2" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></textarea></div></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeAddStudentModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="submit" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Simpan</button></div></form></div></div>
+                    <div id="editStudentModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-lg"><form id="editStudentForm" onsubmit="event.preventDefault(); app.saveStudent();"><input type="hidden" id="editStudentId"><h2 class="text-xl font-bold text-white mb-4">Edit Data Siswa</h2><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label for="editStudentName" class="text-sm text-slate-400">Nama Lengkap</label><input type="text" id="editStudentName" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="editStudentClass" class="text-sm text-slate-400">Kelas</label><select id="editStudentClass" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></select></div><div><label for="editStudentNisn" class="text-sm text-slate-400">NISN</label><input type="text" id="editStudentNisn" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></div><div><label for="editStudentPhone" class="text-sm text-slate-400">No. HP</label><input type="text" id="editStudentPhone" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></div><div class="md:col-span-2"><label for="editStudentAddress" class="text-sm text-slate-400">Alamat</label><textarea id="editStudentAddress" rows="2" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></textarea></div></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeEditStudentModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="submit" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Simpan Perubahan</button></div></form></div></div>
+                    <div id="addRecordModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-lg"><form id="addRecordForm" onsubmit="event.preventDefault(); app.addRecord();"><h2 class="text-xl font-bold text-white mb-4">Tambah Catatan</h2><div class="space-y-4"><div><label for="recordDate" class="text-sm text-slate-400">Tanggal</label><input type="date" id="recordDate" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="recordType" class="text-sm text-slate-400">Jenis Catatan</label><select id="recordType" onchange="app.updateRecordItemOptions('add')" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></select></div><div><label for="recordItem" class="text-sm text-slate-400">Keterangan</label><select id="recordItem" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></select></div><div><label for="recordNotes" class="text-sm text-slate-400">Catatan Tambahan (Opsional)</label><textarea id="recordNotes" rows="2" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></textarea></div></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeAddRecordModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="submit" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Tambah</button></div></form></div></div>
+                    <div id="editRecordModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-lg"><form id="editRecordForm" onsubmit="event.preventDefault(); app.saveRecord();"><input type="hidden" id="editRecordId"><h2 class="text-xl font-bold text-white mb-4">Edit Catatan</h2><div class="space-y-4"><div><label for="editRecordDate" class="text-sm text-slate-400">Tanggal</label><input type="date" id="editRecordDate" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="editRecordType" class="text-sm text-slate-400">Jenis Catatan</label><select id="editRecordType" onchange="app.updateRecordItemOptions('edit')" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></select></div><div><label for="editRecordItem" class="text-sm text-slate-400">Keterangan</label><select id="editRecordItem" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></select></div><div><label for="editRecordNotes" class="text-sm text-slate-400">Catatan Tambahan (Opsional)</label><textarea id="editRecordNotes" rows="2" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></textarea></div></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeEditRecordModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="submit" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Simpan Perubahan</button></div></form></div></div>
+                    <div id="editMasterModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-lg"><form id="editMasterForm" onsubmit="event.preventDefault(); app.saveMasterDataItem();"><input type="hidden" id="editMasterId"><input type="hidden" id="editMasterType"><h2 class="text-xl font-bold text-white mb-4">Edit Data Master</h2><div class="space-y-4"><div><label for="editMasterName" class="text-sm text-slate-400">Nama</label><input type="text" id="editMasterName" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="editMasterPoints" class="text-sm text-slate-400">Poin</label><input type="number" id="editMasterPoints" min="1" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeEditMasterModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="submit" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Simpan</button></div></form></div></div>
+                    <div id="settingsModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-lg"><form id="settingsForm" onsubmit="event.preventDefault(); app.saveSettings();"><h2 class="text-xl font-bold text-white mb-4">Pengaturan Aplikasi</h2><div class="space-y-4"><div><label for="settingSchoolName" class="text-sm text-slate-400">Nama Sekolah</label><input type="text" id="settingSchoolName" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="settingTeacherName" class="text-sm text-slate-400">Nama Guru/Wali Kelas</label><input type="text" id="settingTeacherName" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="settingTeacherNip" class="text-sm text-slate-400">NIP Guru/Wali Kelas</label><input type="text" id="settingTeacherNip" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg" required></div><div><label for="settingToken" class="text-sm text-slate-400">Token Akses Baru (Opsional)</label><input type="password" id="settingToken" placeholder="Kosongkan jika tidak ingin mengubah" class="w-full mt-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg"></div></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeSettingsModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="submit" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Simpan Pengaturan</button></div></form></div></div>
+                    <div id="importModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-3xl"><form id="importExcelForm" onsubmit="event.preventDefault(); document.getElementById('excelFileInput').click();"><h2 class="text-xl font-bold text-white mb-4">Import Siswa dari Excel</h2><p class="text-slate-400 text-sm mb-4">Pastikan file Excel Anda memiliki header kolom: <strong>nama, kelas, nisn, alamat, nomor handphone</strong> (huruf kecil semua). Kolom kelas akan dicocokkan dengan nama kelas yang sudah ada di data master.</p><input type="file" id="excelFileInput" class="hidden" accept=".xlsx, .xls" onchange="app.handleExcelUpload(event)"><button type="submit" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2"><i data-lucide="file-up" class="w-5 h-5"></i> Pilih File Excel</button><div id="excelPreview" class="mt-4 max-h-[40vh] overflow-auto"></div><div class="mt-6 flex justify-end gap-3"><button type="button" onclick="app.closeImportModal()" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button type="button" id="confirmImportBtn" onclick="app.confirmImport()" class="px-4 py-2 bg-green-700 hover:bg-green-600 rounded-lg font-semibold hidden">Impor Data Valid</button></div></form></div></div>
+                    <div id="confirmationModal" class="modal-backdrop hidden"><div class="modal-content glass-card p-6 rounded-lg w-full max-w-md text-center"><h2 class="text-lg font-bold text-white mb-2">Konfirmasi</h2><p id="confirmationMessage" class="text-slate-400 mb-6"></p><div class="flex justify-center gap-4"><button id="cancelButton" class="px-6 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg">Batal</button><button id="confirmButton" class="px-6 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold">Ya, Lanjutkan</button></div></div></div>
+                `;
+            },
+            showConfirmationModal(message, onConfirm, confirmClass = 'bg-orange-600 hover:bg-orange-500') {
+                const modal = document.getElementById('confirmationModal');
+                document.getElementById('confirmationMessage').textContent = message;
+                const confirmBtn = document.getElementById('confirmButton');
+                const cancelBtn = document.getElementById('cancelButton');
+                confirmBtn.className = `px-6 py-2 rounded-lg font-semibold ${confirmClass}`;
+                const newConfirmBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+                newConfirmBtn.addEventListener('click', () => { onConfirm(); modal.classList.add('hidden'); });
+                const newCancelBtn = cancelBtn.cloneNode(true);
+                cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+                newCancelBtn.addEventListener('click', () => { modal.classList.add('hidden'); });
+                modal.classList.remove('hidden');
+            },
             openAddRecordModal() {
                 document.getElementById('recordDate').value = new Date().toISOString().slice(0, 10);
+                document.getElementById('recordType').innerHTML = '<option value="violation">Pelanggaran</option><option value="achievement">Penghargaan</option>';
                 this.updateRecordItemOptions('add');
                 document.getElementById('addRecordModal').classList.remove('hidden');
             },
@@ -822,6 +933,7 @@
                 if (!record) return;
                 document.getElementById('editRecordId').value = record.id;
                 document.getElementById('editRecordDate').value = record.date;
+                document.getElementById('editRecordType').innerHTML = '<option value="violation">Pelanggaran</option><option value="achievement">Penghargaan</option>';
                 document.getElementById('editRecordType').value = record.type;
                 document.getElementById('editRecordNotes').value = record.notes;
                 this.updateRecordItemOptions('edit', record.itemId);
@@ -839,152 +951,67 @@
             updateRecordItemOptions(mode = 'add', selectedItemId = null) {
                 const typeEl = document.getElementById(mode === 'add' ? 'recordType' : 'editRecordType');
                 const itemEl = document.getElementById(mode === 'add' ? 'recordItem' : 'editRecordItem');
-                typeEl.innerHTML = '<option value="violation">Pelanggaran</option><option value="achievement">Penghargaan</option>';
                 const items = typeEl.value === 'violation' ? this.data.violations : this.data.achievements;
                 itemEl.innerHTML = '';
                 items.forEach(item => {
                     const option = document.createElement('option');
                     option.value = item.id;
-                    option.textContent = `${item.name} (${item.points} poin)`;
-                    if (item.id === selectedItemId) option.selected = true;
+                    option.textContent = `${item.name} (${typeEl.value === 'violation' ? '-' : '+'}${item.points} poin)`;
+                    if (selectedItemId && item.id == selectedItemId) {
+                        option.selected = true;
+                    }
                     itemEl.appendChild(option);
                 });
             },
-            showMasterData(type) {
-                this.data.currentMasterDataType = type;
-                document.getElementById('masterDataTitle').textContent = `Kelola Data ${type}`;
-                const pointsInput = document.getElementById('masterDataPoints');
-                pointsInput.style.display = type === 'Kelas' ? 'none' : 'block';
-                pointsInput.required = type !== 'Kelas';
-                this.renderMasterDataList();
-                document.getElementById('masterDataModal').classList.remove('hidden');
-            },
-            closeMasterDataModal() { document.getElementById('masterDataModal').classList.add('hidden'); },
-            renderMasterDataList() {
-                const type = this.data.currentMasterDataType;
-                const listEl = document.getElementById('masterDataList');
-                const items = (type === 'Kelas') ? this.data.classes : (type === 'Pelanggaran') ? this.data.violations : this.data.achievements;
-                listEl.innerHTML = '';
-                items.forEach(item => {
-                    const el = document.createElement('div');
-                    el.className = 'flex justify-between items-center p-3 bg-slate-700/50 rounded-lg';
-                    el.innerHTML = `<div><p class="text-white">${item.name}</p>${item.points != null ? `<span class="text-sm text-blue-400">${item.points} poin</span>` : ''}</div>
-                        <div class="flex gap-3">
-                            <button onclick="app.openEditMasterModal(${item.id}, '${type}')" class="text-yellow-400 hover:text-yellow-300"><i data-lucide="file-pen-line" class="w-5 h-5"></i></button>
-                            <button onclick="app.deleteMasterDataItem(${item.id}, '${type}')" class="text-red-500 hover:text-red-400"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
-                        </div>`;
-                    listEl.appendChild(el);
-                });
-                lucide.createIcons();
-            },
-            openEditMasterModal(itemId, type) {
-                const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
-                const item = this.data[key].find(i => i.id === itemId);
-                if (!item) return;
-                document.getElementById('editMasterId').value = item.id;
-                document.getElementById('editMasterType').value = type;
-                document.getElementById('editMasterName').value = item.name;
-                const pointsContainer = document.getElementById('editMasterPointsContainer');
-                pointsContainer.style.display = type !== 'Kelas' ? 'block' : 'none';
-                if (type !== 'Kelas') document.getElementById('editMasterPoints').value = item.points;
-                document.getElementById('editMasterModal').classList.remove('hidden');
-            },
-            closeEditMasterModal() { document.getElementById('editMasterModal').classList.add('hidden'); },
+            
+            // --- EXPORT FUNCTIONS ---
             exportToPDF() {
                 if (!this.data.currentStudentId) return;
                 const student = this.data.students.find(s => s.id === this.data.currentStudentId);
                 const studentClass = this.data.classes.find(c => c.id === student.classId);
+                const records = this.data.records.filter(r => r.studentId === this.data.currentStudentId);
+
+                const tableData = records.map(record => {
+                    const isViolation = record.type === 'violation';
+                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
+                    return [ new Date(record.date).toLocaleDateString('id-ID'), isViolation ? 'Pelanggaran' : 'Penghargaan', item ? item.name : 'Item Dihapus', item ? (isViolation ? `-${item.points}` : `+${item.points}`) : '0', record.notes || '' ];
+                });
+
                 const { schoolName, teacherName, teacherNip } = this.data.settings;
                 const doc = new window.jspdf.jsPDF();
                 doc.setFontSize(16); doc.text(schoolName, 14, 20);
-                doc.setFontSize(12); doc.text(`Riwayat Catatan: ${student.name}`, 14, 28);
-                doc.setFontSize(10); doc.setTextColor(100);
-                doc.text(`Kelas: ${studentClass?.name || 'Kelas Dihapus'}`, 14, 34);
-                const tableData = this.data.records.filter(r => r.studentId === student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map(record => {
-                    const isViolation = record.type === 'violation';
-                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
-                    return [new Date(record.date).toLocaleDateString('id-ID'), isViolation ? 'Pelanggaran' : 'Penghargaan', item ? item.name : 'Item Dihapus', item ? (isViolation ? -item.points : `+${item.points}`) : 0, record.notes];
-                });
+                doc.setFontSize(12); 
+                doc.text(`Riwayat Catatan: ${student.name}`, 14, 28);
+                doc.text(`Kelas: ${studentClass?.name || 'N/A'}`, 14, 34);
                 doc.autoTable({ startY: 42, head: [['Tanggal', 'Jenis', 'Keterangan', 'Poin', 'Catatan']], body: tableData, theme: 'grid', headStyles: { fillColor: [30, 41, 59] } });
                 const finalY = doc.lastAutoTable.finalY || 60;
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const centerX = pageWidth / 2;
                 doc.setFontSize(10);
-                doc.text(`Mengetahui,`, 150, finalY + 15); doc.text(teacherName, 150, finalY + 35); doc.text(teacherNip, 150, finalY + 40);
+                doc.text(`Mengetahui,`, centerX, finalY + 15, { align: 'center' }); 
+                doc.text(teacherName, centerX, finalY + 35, { align: 'center' }); 
+                doc.text(teacherNip, centerX, finalY + 40, { align: 'center' });
                 doc.save(`riwayat_${student.name.replace(/\s/g, '_')}.pdf`);
             },
             exportToExcel() {
                 if (!this.data.currentStudentId) return;
                 const student = this.data.students.find(s => s.id === this.data.currentStudentId);
-                const dataToExport = this.data.records.filter(r => r.studentId === student.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map(record => {
+                const records = this.data.records.filter(r => r.studentId === this.data.currentStudentId);
+                
+                const dataForSheet = records.map(record => {
                     const isViolation = record.type === 'violation';
                     const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
-                    return { 'Tanggal': new Date(record.date).toLocaleDateString('id-ID'), 'Jenis': isViolation ? 'Pelanggaran' : 'Penghargaan', 'Keterangan': item ? item.name : 'Item Dihapus', 'Poin': item ? (isViolation ? -item.points : item.points) : 0, 'Catatan': record.notes };
+                    return { 'Tanggal': new Date(record.date).toLocaleDateString('id-ID'), 'Jenis': isViolation ? 'Pelanggaran' : 'Penghargaan', 'Keterangan': item ? item.name : 'Item Dihapus', 'Poin': item ? (isViolation ? -item.points : item.points) : 0, 'Catatan Tambahan': record.notes || '' };
                 });
-                const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+
+                const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
                 const workbook = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Riwayat');
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Riwayat Catatan');
                 XLSX.writeFile(workbook, `riwayat_${student.name.replace(/\s/g, '_')}.xlsx`);
             },
-            showConfirmationModal(message, onConfirm, confirmClass = 'bg-orange-600 hover:bg-orange-500') {
-                const modal = document.getElementById('confirmationModal');
-                modal.querySelector('#confirmationMessage').textContent = message;
-                const confirmBtn = modal.querySelector('#confirmActionBtn');
-                confirmBtn.className = `text-white font-bold py-2 px-4 rounded-lg ${confirmClass}`;
-                const newConfirmBtn = confirmBtn.cloneNode(true);
-                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-                newConfirmBtn.addEventListener('click', () => { onConfirm(); this.closeConfirmationModal(); }, { once: true });
-                modal.classList.remove('hidden');
-            },
-            closeConfirmationModal() { document.getElementById('confirmationModal').classList.add('hidden'); },
-
-            // --- RENDER ALL MODALS ---
-            renderModals() {
-                const container = document.getElementById('modal-container');
-                container.innerHTML = `
-                    <!-- Add Student Modal -->
-                    <div id="addStudentModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Tambah Siswa Baru</h2><form id="addStudentForm" class="space-y-4">
-                        <div><label class="text-sm">Nama Lengkap</label><input type="text" id="addStudentName" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div>
-                        <div><label class="text-sm">Kelas</label><select id="addStudentClass" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div>
-                        <div><label class="text-sm">NISN</label><input type="text" id="addStudentNisn" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
-                        <div><label class="text-sm">Alamat</label><textarea id="addStudentAddress" rows="2" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div>
-                        <div><label class="text-sm">Nomor Handphone</label><input type="tel" id="addStudentPhone" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
-                        <div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeAddStudentModal()" class="bg-slate-600 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-orange-600 py-2 px-4 rounded-lg">Simpan</button></div>
-                    </form></div></div></div>
-                    <!-- Edit Student Modal -->
-                    <div id="editStudentModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Edit Data Siswa</h2><form id="editStudentForm" class="space-y-4">
-                        <input type="hidden" id="editStudentId">
-                        <div><label class="text-sm">Nama Lengkap</label><input type="text" id="editStudentName" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div>
-                        <div><label class="text-sm">Kelas</label><select id="editStudentClass" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div>
-                        <div><label class="text-sm">NISN</label><input type="text" id="editStudentNisn" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
-                        <div><label class="text-sm">Alamat</label><textarea id="editStudentAddress" rows="2" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div>
-                        <div><label class="text-sm">Nomor Handphone</label><input type="tel" id="editStudentPhone" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></div>
-                        <div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeEditStudentModal()" class="bg-slate-600 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-yellow-600 py-2 px-4 rounded-lg">Simpan Perubahan</button></div>
-                    </form></div></div></div>
-                    <!-- Import Excel Modal -->
-                    <div id="importModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-2xl modal-content"><div class="p-6">
-                        <h2 class="text-xl font-bold mb-2 text-white">Import Siswa dari Excel</h2>
-                        <p class="text-sm text-slate-400 mb-4">Pastikan file Excel memiliki kolom: nama, kelas, nisn, alamat, nomor handphone.</p>
-                        <form id="importExcelForm"><button type="submit" class="w-full bg-slate-700 hover:bg-slate-600 p-4 border-2 border-dashed border-slate-500 rounded-lg flex flex-col items-center justify-center gap-2"><i data-lucide="upload-cloud" class="w-8 h-8 text-orange-400"></i><span>Klik untuk memilih file .xlsx atau .xls</span></button><input type="file" id="excelFileInput" class="hidden" accept=".xlsx, .xls"></form>
-                        <div id="excelPreview" class="mt-4 max-h-60 overflow-y-auto"></div>
-                        <div class="pt-4 flex justify-end gap-3"><button type="button" onclick="app.closeImportModal()" class="bg-slate-600 py-2 px-4 rounded-lg">Batal</button><button type="button" id="confirmImportBtn" onclick="app.confirmImport()" class="bg-green-700 hover:bg-green-600 py-2 px-4 rounded-lg hidden">Konfirmasi Import</button></div>
-                    </div></div></div>
-                    <!-- Add Record Modal -->
-                    <div id="addRecordModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Tambah Catatan</h2><form id="addRecordForm" class="space-y-4"><div><label class="text-sm">Tanggal</label><input type="date" id="recordDate" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div><div><label class="text-sm">Jenis</label><select id="recordType" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Detail</label><select id="recordItem" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Catatan</label><textarea id="recordNotes" rows="3" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeAddRecordModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-orange-600 hover:bg-orange-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
-                    <!-- Edit Record Modal -->
-                    <div id="editRecordModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Edit Catatan</h2><form id="editRecordForm" class="space-y-4"><input type="hidden" id="editRecordId"><div><label class="text-sm">Tanggal</label><input type="date" id="editRecordDate" class="mt-1 w-full p-2 bg-slate-700 rounded-md" required></div><div><label class="text-sm">Jenis</label><select id="editRecordType" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Detail</label><select id="editRecordItem" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></select></div><div><label class="text-sm">Catatan</label><textarea id="editRecordNotes" rows="3" class="mt-1 w-full p-2 bg-slate-700 rounded-md"></textarea></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeEditRecordModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
-                    <!-- Master Data Modal -->
-                    <div id="masterDataModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-xl modal-content"><div class="p-6"><h2 id="masterDataTitle" class="text-xl font-bold mb-4 text-white"></h2><form id="masterDataForm" class="flex gap-2 items-center mb-4"><input type="text" id="masterDataName" placeholder="Nama item..." class="flex-grow p-2 bg-slate-700 rounded-lg" required><input type="number" id="masterDataPoints" placeholder="Poin" class="w-24 p-2 bg-slate-700 rounded-lg"><button type="submit" class="bg-orange-600 hover:bg-orange-500 py-2 px-4 rounded-lg">Tambah</button></form><div id="masterDataList" class="space-y-2 pr-2"></div><div class="mt-6 flex justify-end"><button type="button" onclick="app.closeMasterDataModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Tutup</button></div></div></div></div>
-                    <!-- Edit Master Modal -->
-                    <div id="editMasterModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold text-white">Edit Item</h2><form id="editMasterForm" class="space-y-4"><input type="hidden" id="editMasterId"><input type="hidden" id="editMasterType"><div><label class="text-sm">Nama Item</label><input type="text" id="editMasterName" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div id="editMasterPointsContainer"><label class="text-sm">Poin</label><input type="number" id="editMasterPoints" class="mt-1 w-full p-2 bg-slate-700 rounded-lg"></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeEditMasterModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-yellow-600 hover:bg-yellow-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
-                    <!-- Settings Modal -->
-                    <div id="settingsModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6"><h2 class="text-xl font-bold mb-4 text-white">Pengaturan</h2><form id="settingsForm" class="space-y-4"><div><label class="text-sm">Nama Sekolah</label><input type="text" id="settingSchoolName" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div><label class="text-sm">Nama Guru</label><input type="text" id="settingTeacherName" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div><label class="text-sm">NIP Guru</label><input type="text" id="settingTeacherNip" class="mt-1 w-full p-2 bg-slate-700 rounded-lg" required></div><div><label class="text-sm">Token Baru</label><input type="password" id="settingToken" placeholder="Kosongkan jika tidak diubah" class="mt-1 w-full p-2 bg-slate-700 rounded-lg"></div><div class="pt-2 flex justify-end gap-3"><button type="button" onclick="app.closeSettingsModal()" class="bg-slate-600 hover:bg-slate-500 py-2 px-4 rounded-lg">Batal</button><button type="submit" class="bg-orange-600 hover:bg-orange-500 py-2 px-4 rounded-lg">Simpan</button></div></form></div></div></div>
-                    <!-- Confirmation Modal -->
-                    <div id="confirmationModal" class="modal-backdrop hidden"><div class="glass-card rounded-lg shadow-xl w-full max-w-md modal-content"><div class="p-6 text-center"><i data-lucide="alert-triangle" class="w-16 h-16 text-yellow-400 mx-auto mb-4"></i><h2 class="text-xl font-bold mb-2 text-white">Apakah Anda Yakin?</h2><p id="confirmationMessage" class="text-slate-300 mb-6"></p><div class="flex justify-center gap-4"><button type="button" onclick="app.closeConfirmationModal()" class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-6 rounded-lg">Batal</button><button type="button" id="confirmActionBtn" class="">Yakin</button></div></div></div></div>
-                `;
-            }
         };
 
-        // --- Initializing the app ---
-        document.addEventListener('DOMContentLoaded', () => { app.init(); });
+        app.init();
     </script>
 </body>
 </html>
