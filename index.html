@@ -753,9 +753,10 @@
                                     ${record.notes ? `<p class="text-sm italic mt-1 text-slate-500">"${record.notes}"</p>` : ''}
                                 </div>
                             </div>
-                            <div class="flex items-center gap-4 ml-4 flex-shrink-0">
-                               <span class="font-semibold text-lg ${points < 0 ? 'text-red-400' : 'text-green-400'}">${points > 0 ? '+' : ''}${points}</span>
-                               <button onclick="app.openEditRecordModal(${record.id})" class="text-slate-400 hover:text-orange-400 transition-colors"><i data-lucide="file-pen-line" class="w-4 h-4"></i></button>
+                            <div class="flex items-center gap-2 ml-4 flex-shrink-0">
+                               <span class="font-semibold text-lg ${points < 0 ? 'text-red-400' : 'text-green-400'} w-10 text-right">${points > 0 ? '+' : ''}${points}</span>
+                               <button onclick="app.openEditRecordModal(${record.id})" class="text-slate-400 hover:text-orange-400 p-1 rounded"><i data-lucide="file-pen-line" class="w-4 h-4"></i></button>
+                               <button onclick="app.confirmDeleteRecord(${record.id})" class="text-slate-400 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                             </div>
                         </div>`;
                     listEl.appendChild(el);
@@ -776,6 +777,28 @@
                     record.itemId = parseInt(document.getElementById('editRecordItem').value); record.notes = document.getElementById('editRecordNotes').value;
                 }
                 this.saveAllData(); this.showStudentDetail(this.data.currentStudentId); this.closeEditRecordModal();
+            },
+            confirmDeleteRecord(recordId) {
+                const record = this.data.records.find(r => r.id === recordId);
+                if (!record) return;
+
+                const isViolation = record.type === 'violation';
+                const item = isViolation 
+                    ? this.data.violations.find(v => v.id === record.itemId) 
+                    : this.data.achievements.find(a => a.id === record.itemId);
+
+                const itemName = item ? item.name : 'Catatan';
+                
+                this.showConfirmationModal(
+                    `Apakah Anda yakin ingin menghapus catatan "${itemName}" ini?`,
+                    () => this.deleteRecord(recordId),
+                    'bg-red-600 hover:bg-red-500'
+                );
+            },
+            deleteRecord(recordId) {
+                this.data.records = this.data.records.filter(r => r.id !== recordId);
+                this.saveAllData();
+                this.showStudentDetail(this.data.currentStudentId); // Re-render the view
             },
             addMasterDataItem() {
                 const type = this.data.currentMasterDataType, name = document.getElementById('masterDataName').value, points = document.getElementById('masterDataPoints').value; if (!name) return;
@@ -967,54 +990,144 @@
             // --- EXPORT FUNCTIONS ---
             exportToPDF() {
                 if (!this.data.currentStudentId) return;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
                 const student = this.data.students.find(s => s.id === this.data.currentStudentId);
                 const studentClass = this.data.classes.find(c => c.id === student.classId);
-                const records = this.data.records.filter(r => r.studentId === this.data.currentStudentId);
+                const records = this.data.records
+                    .filter(r => r.studentId === this.data.currentStudentId)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-                const tableData = records.map(record => {
-                    const isViolation = record.type === 'violation';
-                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
-                    return [ new Date(record.date).toLocaleDateString('id-ID'), isViolation ? 'Pelanggaran' : 'Penghargaan', item ? item.name : 'Item Dihapus', item ? (isViolation ? `-${item.points}` : `+${item.points}`) : '0', record.notes || '' ];
-                });
+                if (!student) return;
 
                 const { schoolName, teacherName, teacherNip } = this.data.settings;
-                const doc = new window.jspdf.jsPDF();
-                doc.setFontSize(16); doc.text(schoolName, 14, 20);
-                doc.setFontSize(12); 
-                doc.text(`Riwayat Catatan: ${student.name}`, 14, 28);
-                doc.text(`Kelas: ${studentClass?.name || 'N/A'}`, 14, 34);
-                doc.autoTable({ startY: 42, head: [['Tanggal', 'Jenis', 'Keterangan', 'Poin', 'Catatan']], body: tableData, theme: 'grid', headStyles: { fillColor: [30, 41, 59] } });
-                const finalY = doc.lastAutoTable.finalY || 60;
+
+                // Header
+                doc.setFontSize(16);
+                doc.setFont("helvetica", "bold");
+                doc.text("RIWAYAT CATATAN SISWA", doc.internal.pageSize.getWidth() / 2, 15, { align: 'center' });
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "normal");
+                doc.text(schoolName, doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
+                
+                // Student Info
+                doc.setFontSize(10);
+                doc.text(`Nama Siswa: ${student.name}`, 14, 35);
+                doc.text(`Kelas: ${studentClass ? studentClass.name : 'N/A'}`, 14, 40);
+                doc.text(`NISN: ${student.nisn || '-'}`, 14, 45);
+
+                const tableColumn = ["Tanggal", "Jenis", "Keterangan", "Poin", "Catatan Tambahan"];
+                const tableRows = [];
+                let totalPoints = 0;
+
+                records.forEach(record => {
+                    const isViolation = record.type === 'violation';
+                    const item = isViolation 
+                        ? this.data.violations.find(v => v.id === record.itemId) 
+                        : this.data.achievements.find(a => a.id === record.itemId);
+                    
+                    const points = item ? (isViolation ? -item.points : item.points) : 0;
+                    totalPoints += points;
+                    
+                    const recordData = [
+                        new Date(record.date).toLocaleDateString('id-ID'),
+                        isViolation ? 'Pelanggaran' : 'Penghargaan',
+                        item ? item.name : 'Item Dihapus',
+                        points,
+                        record.notes || ''
+                    ];
+                    tableRows.push(recordData);
+                });
+
+                tableRows.push(['', '', 'Total Poin Akhir', totalPoints, '']);
+
+                doc.autoTable({
+                    head: [tableColumn],
+                    body: tableRows,
+                    startY: 55,
+                    theme: 'grid',
+                    headStyles: { fillColor: [30, 41, 59] }, // slate-800
+                    didDrawCell: (data) => {
+                        if (data.row.index === tableRows.length - 1 && data.column.index === 2) {
+                           data.cell.styles.fontStyle = 'bold';
+                        }
+                        if (data.row.index === tableRows.length - 1 && data.column.index === 3) {
+                           data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                });
+                
+                let finalY = doc.lastAutoTable.finalY || 80;
+                
                 const pageWidth = doc.internal.pageSize.getWidth();
                 const centerX = pageWidth / 2;
                 doc.setFontSize(10);
                 doc.text(`Mengetahui,`, centerX, finalY + 15, { align: 'center' });
-                doc.text(teacherName, centerX, finalY + 35, { align: 'center' }); 
-                doc.text(teacherNip, centerX, finalY + 40, { align: 'center' });
+                doc.text(`Guru Bimbingan Konseling`, centerX, finalY + 20, { align: 'center' });
+                doc.text(teacherName, centerX, finalY + 40, { align: 'center' }); 
+                doc.text(teacherNip, centerX, finalY + 45, { align: 'center' });
                 doc.save(`riwayat_${student.name.replace(/\s/g, '_')}.pdf`);
             },
             exportToExcel() {
                 if (!this.data.currentStudentId) return;
                 const student = this.data.students.find(s => s.id === this.data.currentStudentId);
-                const records = this.data.records.filter(r => r.studentId === this.data.currentStudentId);
-                
-                const dataForSheet = records.map(record => {
+                const studentClass = this.data.classes.find(c => c.id === student.classId);
+                const records = this.data.records
+                    .filter(r => r.studentId === this.data.currentStudentId)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                if (!student) return;
+
+                const dataForExcel = [
+                    ["RIWAYAT CATATAN SISWA"],
+                    [],
+                    ["Nama", student.name],
+                    ["Kelas", studentClass ? studentClass.name : "N/A"],
+                    ["NISN", student.nisn || "-"],
+                    [],
+                    ["Tanggal", "Jenis", "Keterangan", "Poin", "Catatan Tambahan"]
+                ];
+
+                let totalPoints = 0;
+                records.forEach(record => {
                     const isViolation = record.type === 'violation';
-                    const item = isViolation ? this.data.violations.find(v => v.id === record.itemId) : this.data.achievements.find(a => a.id === record.itemId);
-                    return { 'Tanggal': new Date(record.date).toLocaleDateString('id-ID'), 'Jenis': isViolation ? 'Pelanggaran' : 'Penghargaan', 'Keterangan': item ? item.name : 'Item Dihapus', 'Poin': item ? (isViolation ? -item.points : item.points) : 0, 'Catatan Tambahan': record.notes || '' };
+                    const item = isViolation 
+                        ? this.data.violations.find(v => v.id === record.itemId) 
+                        : this.data.achievements.find(a => a.id === record.itemId);
+                    
+                    const points = item ? (isViolation ? -item.points : item.points) : 0;
+                    totalPoints += points;
+
+                    dataForExcel.push([
+                        new Date(record.date).toLocaleDateString('id-ID'),
+                        isViolation ? 'Pelanggaran' : 'Penghargaan',
+                        item ? item.name : 'Item Dihapus',
+                        points,
+                        record.notes || ''
+                    ]);
                 });
 
-                const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+                dataForExcel.push([]);
+                dataForExcel.push(["", "", "Total Poin Akhir:", totalPoints]);
+
+                const worksheet = XLSX.utils.aoa_to_sheet(dataForExcel);
+
+                worksheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }]; // Merge title cells
+                worksheet['!cols'] = [ { wch: 15 }, { wch: 15 }, { wch: 40 }, { wch: 10 }, { wch: 40 } ]; // Set column widths
+
                 const workbook = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Riwayat Catatan');
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Riwayat Siswa");
                 XLSX.writeFile(workbook, `riwayat_${student.name.replace(/\s/g, '_')}.xlsx`);
-            },
+            }
         };
 
-        app.init();
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            app.init();
+        });
     </script>
 </body>
 </html>
-
 
 
