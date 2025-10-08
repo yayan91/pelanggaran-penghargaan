@@ -323,9 +323,18 @@
                 document.getElementById('addStudentModal').classList.add('hidden');
             },
             addStudent() {
-                const newStudent = { id: Date.now(), name: document.getElementById('addStudentName').value, classId: parseInt(document.getElementById('addStudentClass').value), nisn: document.getElementById('addStudentNisn').value, address: document.getElementById('addStudentAddress').value, phone: document.getElementById('addStudentPhone').value, };
+                const newStudent = {
+                    id: Date.now(),
+                    name: document.getElementById('addStudentName').value,
+                    classId: parseInt(document.getElementById('addStudentClass').value),
+                    nisn: document.getElementById('addStudentNisn').value,
+                    address: document.getElementById('addStudentAddress').value,
+                    phone: document.getElementById('addStudentPhone').value
+                };
                 this.data.students.push(newStudent);
-                this.saveAllData(); this.renderStudentList(); this.closeAddStudentModal();
+                this.saveAllData();
+                this.renderStudentList();
+                this.closeAddStudentModal();
                 this.refreshActiveDashboard();
             },
             openEditStudentModal(studentId) {
@@ -347,11 +356,21 @@
             saveStudent() {
                 const studentId = parseInt(document.getElementById('editStudentId').value);
                 const student = this.data.students.find(s => s.id === studentId);
-                if (!student) return;
-                student.name = document.getElementById('editStudentName').value; student.classId = parseInt(document.getElementById('editStudentClass').value); student.nisn = document.getElementById('editStudentNisn').value; student.address = document.getElementById('editStudentAddress').value; student.phone = document.getElementById('editStudentPhone').value;
-                this.saveAllData(); this.renderStudentList();
-                if (this.data.currentStudentId === studentId) this.showStudentDetail(studentId);
-                else this.refreshActiveDashboard();
+                if (!student) {
+                    return;
+                }
+                student.name = document.getElementById('editStudentName').value;
+                student.classId = parseInt(document.getElementById('editStudentClass').value);
+                student.nisn = document.getElementById('editStudentNisn').value;
+                student.address = document.getElementById('editStudentAddress').value;
+                student.phone = document.getElementById('editStudentPhone').value;
+                this.saveAllData();
+                this.renderStudentList();
+                if (this.data.currentStudentId === studentId) {
+                    this.showStudentDetail(studentId);
+                } else {
+                    this.refreshActiveDashboard();
+                }
                 this.closeEditStudentModal();
             },
             confirmDeleteStudent(studentId) {
@@ -764,7 +783,15 @@
                 lucide.createIcons();
             },
             addRecord() { 
-                this.data.records.push({ id: Date.now(), studentId: this.data.currentStudentId, type: document.getElementById('recordType').value, itemId: parseInt(document.getElementById('recordItem').value), notes: document.getElementById('recordNotes').value, date: document.getElementById('recordDate').value, });
+                const newRecord = {
+                    id: Date.now(),
+                    studentId: this.data.currentStudentId,
+                    type: document.getElementById('recordType').value,
+                    itemId: parseInt(document.getElementById('recordItem').value),
+                    notes: document.getElementById('recordNotes').value,
+                    date: document.getElementById('recordDate').value
+                };
+                this.data.records.push(newRecord);
                 this.saveAllData(); 
                 this.showStudentDetail(this.data.currentStudentId); 
                 this.closeAddRecordModal();
@@ -773,10 +800,14 @@
                 const recordId = parseInt(document.getElementById('editRecordId').value);
                 const record = this.data.records.find(r => r.id === recordId);
                 if (record) {
-                    record.date = document.getElementById('editRecordDate').value; record.type = document.getElementById('editRecordType').value;
-                    record.itemId = parseInt(document.getElementById('editRecordItem').value); record.notes = document.getElementById('editRecordNotes').value;
+                    record.date = document.getElementById('editRecordDate').value;
+                    record.type = document.getElementById('editRecordType').value;
+                    record.itemId = parseInt(document.getElementById('editRecordItem').value);
+                    record.notes = document.getElementById('editRecordNotes').value;
                 }
-                this.saveAllData(); this.showStudentDetail(this.data.currentStudentId); this.closeEditRecordModal();
+                this.saveAllData();
+                this.showStudentDetail(this.data.currentStudentId);
+                this.closeEditRecordModal();
             },
             confirmDeleteRecord(recordId) {
                 const record = this.data.records.find(r => r.id === recordId);
@@ -801,26 +832,60 @@
                 this.showStudentDetail(this.data.currentStudentId); // Re-render the view
             },
             addMasterDataItem() {
-                const type = this.data.currentMasterDataType, name = document.getElementById('masterDataName').value, points = document.getElementById('masterDataPoints').value; if (!name) return;
+                const type = this.data.currentMasterDataType;
+                const name = document.getElementById('masterDataName').value;
+                if (!name) {
+                    return;
+                }
+
+                let points = 0;
+                if (type !== 'Kelas') {
+                    points = document.getElementById('masterDataPoints').value;
+                }
+                
                 const target = (type === 'Kelas') ? this.data.classes : (type === 'Pelanggaran') ? this.data.violations : this.data.achievements;
-                target.push({ id: Date.now(), name: name, ...(type !== 'Kelas' && { points: parseInt(points) || 0 }) });
-                this.saveAllData(); this.renderMasterDataList(); document.getElementById('masterDataForm').reset();
+                const newItem = { id: Date.now(), name: name };
+                
+                if (type !== 'Kelas') {
+                    newItem.points = parseInt(points) || 0;
+                }
+
+                target.push(newItem);
+                this.saveAllData();
+                this.renderMasterDataList();
+                document.getElementById('masterDataForm').reset();
             },
             deleteMasterDataItem(itemId, type) { 
                 const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
                 this.data[key] = this.data[key].filter(i => i.id !== itemId);
-                this.saveAllData(); this.renderMasterDataList(); 
-                if (this.data.currentStudentId) this.showStudentDetail(this.data.currentStudentId);
-                else this.refreshActiveDashboard();
+                this.saveAllData();
+                this.renderMasterDataList(); 
+                if (this.data.currentStudentId) {
+                    this.showStudentDetail(this.data.currentStudentId);
+                } else {
+                    this.refreshActiveDashboard();
+                }
             },
             saveMasterDataItem() {
-                const id = parseInt(document.getElementById('editMasterId').value), type = document.getElementById('editMasterType').value;
-                const name = document.getElementById('editMasterName').value, points = parseInt(document.getElementById('editMasterPoints').value);
+                const id = parseInt(document.getElementById('editMasterId').value);
+                const type = document.getElementById('editMasterType').value;
+                const name = document.getElementById('editMasterName').value;
+                const points = parseInt(document.getElementById('editMasterPoints').value);
                 const key = type === 'Kelas' ? 'classes' : type === 'Pelanggaran' ? 'violations' : 'achievements';
-                const item = this.data[key].find(i => i.id === id); if (item) { item.name = name; if (type !== 'Kelas') item.points = points; }
-                this.saveAllData(); this.renderMasterDataList(); 
-                if (this.data.currentStudentId) this.showStudentDetail(this.data.currentStudentId);
-                else this.refreshActiveDashboard();
+                const item = this.data[key].find(i => i.id === id);
+                if (item) {
+                    item.name = name;
+                    if (type !== 'Kelas') {
+                        item.points = points;
+                    }
+                }
+                this.saveAllData();
+                this.renderMasterDataList();
+                if (this.data.currentStudentId) {
+                    this.showStudentDetail(this.data.currentStudentId);
+                } else {
+                    this.refreshActiveDashboard();
+                }
                 this.closeEditMasterModal();
             },
             
@@ -1129,5 +1194,4 @@
     </script>
 </body>
 </html>
-
 
